@@ -4,33 +4,67 @@ Cette mission suit un scénario de projet professionnel. Déployer un modèle de
 
 ## 📊 Flux de travail
 
-```mermaid
-graph TD
-    Issue[("Issue<br/>(bug · feature · refactor · docs · other)")] --> BranchA[("Branch A")]
-    Issue --> BranchB[("Branch B")]
+```d2
+direction: down
 
-    BranchA --> PR[("Pull Request<br/>(squash merge)")]
-    BranchB --> PR
+Issue: "Issue\nbug · feature · refactor · docs · other" {
+  shape: note
+}
 
-    PR -->|checks requis| CI1[ci-code-quality]
-    PR --> CI2[ci-test]
-    PR --> CI3[ci-security]
-    PR --> CI4[ci-traceability]
-    PR -->|review| MERGE[Merge dans main]
+BranchA: "Branch A"
+BranchB: "Branch B"
 
-    MERGE --> RELEASE_CD{"Workflow Release"}
-    RELEASE_CD --> GATE1[Gate: cohérence de version]
-    RELEASE_CD --> GATE2[Gate: scan container]
-    GATE1 -->|PASS| BUMP[Bump semver]
-    GATE2 -->|PASS| BUMP
-    BUMP --> RELEASE[GitHub Release + Tag vX.Y.Z]
-    BUMP --> DOCKER[Image Docker<br/>GHCR + SBOM + Attestation]
+PR: "Pull Request\n(squash merge)" {
+  shape: diamond
+}
 
-    style Issue fill:#f9f,stroke:#333,stroke-width:2px
-    style PR fill:#bbf,stroke:#333,stroke-width:2px
-    style MERGE fill:#bfb,stroke:#333,stroke-width:2px
-    style RELEASE fill:#fdb,stroke:#333,stroke-width:2px
-    style DOCKER fill:#fdb,stroke:#333,stroke-width:2px
+CIGroup: {
+  CI1: "ci-code-quality"
+  CI2: "ci-test"
+  CI3: "ci-security"
+  CI4: "ci-traceability"
+}
+
+Merge: "Merge dans main"
+
+ReleaseCD: "Workflow Release" {
+  shape: diamond
+}
+
+Gates: {
+  GateVersion: "Gate\ncohérence de version"
+  GateContainer: "Gate\nscan container"
+}
+
+Bump: "Bump semver"
+
+Publish: {
+  Release: "GitHub Release\n+ Tag vX.Y.Z"
+  Docker: "Image Docker\nGHCR + SBOM\n+ Attestation"
+}
+
+Issue -> BranchA
+Issue -> BranchB
+
+BranchA -> PR
+BranchB -> PR
+
+PR -> CIGroup.CI1: "checks requis"
+PR -> CIGroup.CI2
+PR -> CIGroup.CI3
+PR -> CIGroup.CI4
+PR -> Merge: "review"
+
+Merge -> ReleaseCD
+
+ReleaseCD -> Gates.GateVersion
+ReleaseCD -> Gates.GateContainer
+
+Gates.GateVersion -> Bump: "PASS"
+Gates.GateContainer -> Bump: "PASS"
+
+Bump -> Publish.Release
+Bump -> Publish.Docker
 ```
 
 ## 🏗️ Stack technique
