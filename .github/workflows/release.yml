@@ -230,6 +230,11 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      - name: Calculer le nom d'image (minuscules)
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -247,7 +252,7 @@ jobs:
           file: Dockerfile
           push: false
           load: true
-          tags: ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
+          tags: ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: mode=max
@@ -262,7 +267,7 @@ jobs:
             -v "${{ github.workspace }}:/workspace" \
             aquasecurity/trivy:latest \
             image \
-            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} \
+            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} \
             --severity CRITICAL \
             --format sarif \
             --output /workspace/trivy-image.sarif \
@@ -282,7 +287,7 @@ jobs:
           echo "=== Vérifications de l'image Docker ==="
 
           # Vérifier que l'image a un HEALTHCHECK
-          if docker inspect --format='{{.Config.Healthcheck}}' ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} 2>/dev/null | grep -q 'Test'; then
+          if docker inspect --format='{{.Config.Healthcheck}}' ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} 2>/dev/null | grep -q 'Test'; then
             echo "✅ HEALTHCHECK présent"
           else
             echo "⚠️  HEALTHCHECK non défini dans le Dockerfile"
@@ -290,10 +295,10 @@ jobs:
 
           # Vérifier que l'image n'utilise pas root (si USER est défini)
           echo "ℹ️  Vérification utilisateur non-root effectuée"
-          docker run --rm ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} whoami 2>/dev/null || echo "whoami indisponible"
+          docker run --rm ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} whoami 2>/dev/null || echo "whoami indisponible"
 
           # Taille de l'image
-          SIZE=$(docker images ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} --format='{{.Size}}' --no-trunc 2>/dev/null)
+          SIZE=$(docker images ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} --format='{{.Size}}' --no-trunc 2>/dev/null)
           if [ -n "$SIZE" ]; then
             echo "Taille de l'image : $(numfmt --to=iec $SIZE)"
           fi
@@ -322,6 +327,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Calculer le nom d'image (minuscules)
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Installer Python 3.12
         uses: actions/setup-python@v5
@@ -409,9 +419,9 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
-            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}.0
-            ghcr.io/${{ github.repository }}:latest
+            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}
+            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}.0
+            ${{ steps.image.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: mode=max
@@ -420,7 +430,7 @@ jobs:
       - name: Attestation de provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ghcr.io/${{ github.repository }}
+          subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
           subject-path: Dockerfile
 
@@ -438,7 +448,7 @@ jobs:
           echo "=== Vérification post-release ==="
           echo "Release : $VERSION"
           echo "Tag : $(git tag -l "$VERSION")"
-          echo "Image : ghcr.io/${{ github.repository }}:$VERSION"
+          echo "Image : ${{ steps.image.outputs.name }}:$VERSION"
           echo "✅ Release terminée avec succès."
 
   notify-failure:
