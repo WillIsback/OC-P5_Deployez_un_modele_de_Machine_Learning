@@ -1,0 +1,46 @@
+# Workflow : Revue de code IA sur les Pull Requests
+#
+# Privilégié : déclenché à la fin de `ci-test`, il tourne dans le contexte de la
+# branche par défaut et reçoit donc les secrets. Sa définition ne peut pas être
+# modifiée par une PR, et il ne checkout/execute jamais le code de la PR (le diff
+# et les sources sont lus via l'API GitHub). Les PR de forks ne voient pas les
+# secrets.
+#
+# Secrets requis : VLLM_URL, VLLM_API_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
+# Variables optionnelles : VLLM_MODEL, VLLM_TIMEOUT, VLLM_RETRIES
+name: ai-code-review
+
+on:
+  workflow_run:
+    workflows: ["ci-test"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - id: ctx
+        run: |
+          echo "number=${{ github.event.workflow_run.pull_requests[0].number }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: AI Code Review
+        uses: WillIsback/code-review@ef384e905492f048bc4c07ded5cb2129727793bb # v0.6.0
+        with:
+          target-type: pr
+          target-number: ${{ steps.ctx.outputs.number }}
+          head-sha: ${{ steps.ctx.outputs.sha }}
+          vllm-model: ${{ vars.VLLM_MODEL || '' }}
+          vllm-timeout: ${{ vars.VLLM_TIMEOUT || '120' }}
+          vllm-retries: ${{ vars.VLLM_RETRIES || '2' }}
+          vllm-url: ${{ secrets.VLLM_URL }}
+          vllm-api-key: ${{ secrets.VLLM_API_KEY }}
+          extra-headers: |
+            CF-Access-Client-Id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+            CF-Access-Client-Secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
