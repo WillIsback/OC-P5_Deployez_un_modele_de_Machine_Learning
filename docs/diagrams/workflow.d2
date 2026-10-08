@@ -1,0 +1,170 @@
+direction: down
+
+classes: {
+  phase-dev: {
+    style: {
+      fill: "#EBF5FB"
+      stroke: "#2980B9"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  phase-ci: {
+    style: {
+      fill: "#F0FFF0"
+      stroke: "#27AE60"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  phase-cd: {
+    style: {
+      fill: "#F4ECF7"
+      stroke: "#8E44AD"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  phase-publish: {
+    style: {
+      fill: "#E8F6F9"
+      stroke: "#16A085"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  phase-ai: {
+    style: {
+      fill: "#FFF8E1"
+      stroke: "#F39C12"
+      stroke-width: 2
+      stroke-dash: 4
+      border-radius: 6
+    }
+  }
+  gate: {
+    style: {
+      fill: "#FDEDEC"
+      stroke: "#E74C3C"
+      stroke-width: 2
+      border-radius: 4
+      font-color: "#922B21"
+    }
+  }
+}
+
+Issue: "Issue\nbug · feature · refactor · docs · other" {
+  shape: parallelogram
+  class: phase-dev
+}
+
+BranchA: "Branch A" {
+  class: phase-dev
+}
+BranchB: "Branch B" {
+  class: phase-dev
+}
+
+PR: "Pull Request\n(squash merge)" {
+  shape: diamond
+  class: phase-ci
+}
+
+CIGroup: {
+  style: {
+    fill: "#E8F8E8"
+    stroke: "#2ECC71"
+    stroke-width: 3
+    stroke-dash: 1
+    border-radius: 8
+  }
+  CI1: "ci-code-quality" {
+    class: phase-ci
+  }
+  CI2: "ci-test" {
+    class: phase-ci
+  }
+  CI3: "ci-security" {
+    class: phase-ci
+  }
+  CI4: "ci-traceability" {
+    class: phase-ci
+  }
+}
+
+AIReview: "Revue de code IA\n(ai-code-review · non bloquant)" {
+  class: phase-ai
+}
+
+Merge: "Merge dans main" {
+  shape: step
+  class: phase-ci
+}
+
+ReleaseCD: "Workflow Release" {
+  shape: diamond
+  class: phase-cd
+}
+
+Gates: {
+  style: {
+    fill: "#FADBD8"
+    stroke: "#E74C3C"
+    stroke-width: 3
+    stroke-dash: 1
+    border-radius: 8
+  }
+  GateVersion: "Gate\nCohérence\nde version" {
+    class: gate
+  }
+  GateContainer: "Gate\nContainer\nscan" {
+    class: gate
+  }
+}
+
+Bump: "Bump semver" {
+  shape: step
+  class: phase-cd
+}
+
+Publish: {
+  style: {
+    fill: "#D1F2EB"
+    stroke: "#1ABC9C"
+    stroke-width: 3
+    stroke-dash: 1
+    border-radius: 8
+  }
+  Release: "GitHub Release\n+ Tag vX.Y.Z" {
+    shape: cylinder
+    class: phase-publish
+  }
+  Docker: "Image Docker\nGHCR + SBOM\n+ Attestation" {
+    class: phase-publish
+  }
+}
+
+Issue -> BranchA
+Issue -> BranchB
+
+BranchA -> PR
+BranchB -> PR
+
+PR -> CIGroup.CI1: "checks requis"
+PR -> CIGroup.CI2
+PR -> CIGroup.CI3
+PR -> CIGroup.CI4
+CIGroup.CI2 -> AIReview: "workflow_run"
+AIReview -> PR: "commentaire"
+PR -> Merge: "review"
+
+Merge -> ReleaseCD
+
+ReleaseCD -> Gates.GateVersion
+ReleaseCD -> Gates.GateContainer
+
+Gates.GateVersion -> Bump: "PASS"
+Gates.GateContainer -> Bump: "PASS"
+
+Bump -> Publish.Release
+Bump -> Publish.Docker
