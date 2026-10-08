@@ -1,9 +1,10 @@
 [project]
-name = "uv-fastapi-example"
-version = "0.1.0"
-description = "Add your description here"
+name = "P5_Deployez_un_modele_de_Machine_Learning"
+version = "0.0.1"
+description = "Cette mission suit un scénario de projet professionnel. Déployer un modèle de machine learning à l’aide d’outils modernes."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.112.1",
+    "fastapi[standard]>=0.143.0",
+    "ruff>=0.16.10",
 ]

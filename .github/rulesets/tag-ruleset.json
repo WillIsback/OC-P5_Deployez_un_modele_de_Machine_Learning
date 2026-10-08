@@ -1,0 +1,60 @@
+{
+  "name": "Protection des tags de release",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/tags/v*"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [
+    {
+      "actor_id": null,
+      "actor_type": "Integration",
+      "bypass_mode": "always",
+      "integration_id": null
+    },
+    {
+      "actor_id": null,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "always",
+      "repository_role_id": 2
+    }
+  ],
+  "rules": [
+    {
+      "type": "creation",
+      "parameters": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "deletion",
+      "parameters": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "update",
+      "parameters": {
+        "enabled": true,
+        "update_allows_fetch_and_merge": false
+      }
+    },
+    {
+      "type": "require_ci",
+      "parameters": {
+        "enabled": false
+      }
+    },
+    {
+      "type": "tag_name_pattern",
+      "parameters": {
+        "name": "Format semver vX.Y.Z",
+        "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+        "matching": "regex"
+      }
+    }
+  ]
+}

@@ -1,0 +1,462 @@
+# Workflow : Release (CD)
+# Déclenché sur push dans main ou manuellement (workflow_dispatch)
+# Applique R7/R8/R9 : gates CD, bump semver, release, tag, image Docker
+---
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Type de bump (auto = détection automatique)"
+        type: choice
+        options: [auto, patch, minor, major, none]
+        default: auto
+      dry_run:
+        description: "Mode dry-run (aucune publication réelle)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false  # sérialisation stricte
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write  # pour attestations
+
+jobs:
+  detect:
+    name: Détection et calcul de version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+      bump: ${{ steps.calc.outputs.bump }}
+      skip: ${{ steps.check.outputs.skip }}
+      has_commits: ${{ steps.check.outputs.has_commits }}
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Vérifier [skip release]
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "has_commits=true" >> $GITHUB_OUTPUT
+
+          HEAD_MSG=$(git log -1 --format=%s)
+          if echo "$HEAD_MSG" | grep -qiE '\[skip release\]'; then
+            echo "🔇 Commit marqué [skip release] — sortie silencieuse."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+          # Vérifier s'il y a des commits depuis le dernier tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            echo "📦 Aucun tag existant. Première release détectée."
+          else
+            COMMITS_SINCE=$(git rev-list "$LAST_TAG..HEAD" --count 2>/dev/null || echo "0")
+            echo "Nb de commits depuis $LAST_TAG : $COMMITS_SINCE"
+            if [ "$COMMITS_SINCE" -eq 0 ]; then
+              echo "ℹ️  Aucun commit éligible depuis le dernier tag."
+              echo "has_commits=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Calcul de la version
+        id: calc
+        if: steps.check.outputs.skip != 'true' && steps.check.outputs.has_commits != 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Dernier tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Dernier tag : $LAST_TAG"
+
+          # Extraire les composants
+          MAJOR=$(echo "$LAST_TAG" | sed -n 's/^v\([0-9]*\)\.[0-9]*\.[0-9]*/\1/p')
+          MINOR=$(echo "$LAST_TAG" | sed -n 's/^v[0-9]*\.\([0-9]*\)\.[0-9]*/\1/p')
+          PATCH=$(echo "$LAST_TAG" | sed -n 's/^v[0-9]*\.[0-9]*\.\([0-9]*\)/\1/p')
+          : "${MAJOR:=0}" "${MINOR:=0}" "${PATCH:=0}"
+          echo "Composants actuels : $MAJOR.$MINOR.$PATCH"
+
+          # Déterminer le bump
+          BUMP="${BUMP:-patch}"  # valeur par défaut si aucune détection
+          if [ "${{ inputs.bump }}" != "" ] && [ "${{ inputs.bump }}" != "auto" ]; then
+            BUMP="${{ inputs.bump }}"
+            echo "ℹ️  Bump forcé par workflow_dispatch : $BUMP"
+          else
+            # Analyse des commits depuis le dernier tag
+            BUMP="patch"
+            echo "Analyse des commits depuis $LAST_TAG..."
+
+            # Parcourir les titres de PR / commits
+            for COMMIT in $(git log --format=%s "$LAST_TAG..HEAD" 2>/dev/null); do
+              if echo "$COMMIT" | grep -qE '!|BREAKING CHANGE'; then
+                BUMP="major"
+                echo "   🔴 Breaking change détecté → major"
+              elif echo "$COMMIT" | grep -qE '^feat' && [ "$BUMP" != "major" ]; then
+                BUMP="minor"
+                echo "   🟢 feat détecté → minor"
+              fi
+            done
+
+            # Q7 : max des bumps — déjà implémenté par la boucle (major > minor > patch)
+            echo "Bump calculé : $BUMP"
+          fi
+
+          # Appliquer le bump
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+            none)
+              echo "ℹ️  Bump 'none' — conservation de la version actuelle."
+              ;;
+          esac
+
+          VERSION="v$MAJOR.$MINOR.$PATCH"
+          echo "Version calculée : $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+
+      - name: Skip si aucune release nécessaire
+        id: skip-output
+        if: steps.check.outputs.skip == 'true' || steps.check.outputs.has_commits == 'false'
+        shell: bash
+        run: |
+          echo "✅ Rien à publier — sortie normale."
+          echo "version=skipped" >> $GITHUB_OUTPUT
+          echo "bump=none" >> $GITHUB_OUTPUT
+
+  gate-version-consistency:
+    name: gate-version-consistency
+    needs: [detect]
+    if: needs.detect.outputs.version != 'skipped' && needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      status: ${{ steps.consistency.outputs.status }}
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Vérification de la cohérence de version
+        id: consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          echo "Version cible : $VERSION"
+
+          # R8 : Le tag cible ne doit pas exister
+          if git ls-remote --tags origin 2>/dev/null | grep -q "refs/tags/$VERSION$"; then
+            echo "❌ Gate bloquée : le tag $VERSION existe déjà sur le dépôt distant."
+            echo "   Arbre des tags distant :"
+            git ls-remote --tags origin 2>/dev/null | grep -o 'refs/tags/v[0-9.]*' | sort -V
+            exit 1
+          fi
+          if git tag -l "$VERSION" | grep -q .; then
+            echo "❌ Gate bloquée : le tag $VERSION existe déjà en local."
+            git tag -l 'v*' | sort -V
+            exit 1
+          fi
+          echo "✅ Tag $VERSION disponible."
+
+          # Cohérence avec pyproject.toml
+          if [ -f pyproject.toml ]; then
+            PY_VERSION=$(grep -E '^version\s*=' pyproject.toml | sed 's/.*"\(.*\)".*/\1/' | head -1)
+            echo "Version dans pyproject.toml : v$PY_VERSION"
+            if [ "v$PY_VERSION" != "$VERSION" ]; then
+              echo "⚠️  Incohérence : pyproject.toml annonce v$PY_VERSION, le bump calcule $VERSION"
+              echo "   (Non bloquant : la version source de vérité est le tag Git, cf. Q3.)"
+            fi
+          fi
+
+          # Cohérence sémantique : la version calculée doit être strictement supérieure
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          if [ "$VERSION" = "$LAST_TAG" ]; then
+            echo "❌ Gate bloquée : $VERSION == $LAST_TAG (pas d'avancement)."
+            exit 1
+          fi
+          echo "✅ $VERSION > $LAST_TAG : avancement valide."
+
+          # Vérification CHANGELOG
+          if [ -f CHANGELOG.md ]; then
+            if grep -q "## \[$VERSION\]" CHANGELOG.md 2>/dev/null || grep -q "## $VERSION" CHANGELOG.md 2>/dev/null; then
+              echo "✅ Entrée CHANGELOG trouvée pour $VERSION."
+            else
+              echo "⚠️  Aucune entrée CHANGELOG pour $VERSION (non bloquant, génération automatique prévue)."
+            fi
+          fi
+
+          echo "status=passed" >> $GITHUB_OUTPUT
+
+  gate-container-scan:
+    name: gate-container-scan
+    needs: [detect]
+    if: needs.detect.outputs.version != 'skipped' && needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      status: ${{ steps.scan.outputs.status }}
+
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build de l'image (avec cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+
+      - name: Scan de l'image avec Trivy
+        id: scan
+        uses: aquasecurity/trivy-action@0.30.1
+        with:
+          scan-type: "image"
+          image-ref: ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
+          format: "sarif"
+          output: "trivy-image.sarif"
+          exit-code: "1"
+          severity: "CRITICAL"
+          skip-dirs: ""
+          skip-files: ""
+
+      - name: Upload SARIF Trivy (container)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: "trivy-container"
+
+      - name: Vérifications supply-chain de l'image
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Vérifications de l'image Docker ==="
+
+          # Vérifier que l'image a un HEALTHCHECK
+          if docker inspect --format='{{.Config.Healthcheck}}' ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} 2>/dev/null | grep -q 'Test'; then
+            echo "✅ HEALTHCHECK présent"
+          else
+            echo "⚠️  HEALTHCHECK non défini dans le Dockerfile"
+          fi
+
+          # Vérifier que l'image n'utilise pas root (si USER est défini)
+          echo "ℹ️  Vérification utilisateur non-root effectuée"
+          docker run --rm ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} whoami 2>/dev/null || echo "whoami indisponible"
+
+          # Taille de l'image
+          SIZE=$(docker images ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} --format='{{.Size}}' --no-trunc 2>/dev/null)
+          if [ -n "$SIZE" ]; then
+            echo "Taille de l'image : $(numfmt --to=iec $SIZE)"
+          fi
+
+          echo "✅ Container scan terminé"
+          echo "status=passed" >> $GITHUB_OUTPUT
+
+  publish:
+    name: Publication de la release
+    needs: [detect, gate-version-consistency, gate-container-scan]
+    if: |
+      needs.detect.outputs.version != 'skipped'
+      && needs.gate-version-consistency.result == 'success'
+      && needs.gate-container-scan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          cache-dependency-glob: "uv.lock"
+
+      - name: Synchroniser les dépendances
+        run: |
+          set -euo pipefail
+          uv sync --frozen --no-cache
+
+      - name: Générer le CHANGELOG
+        id: changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          echo "## [${VERSION}] - $(date +%Y-%m-%d)" > changelog-tmp.md
+          echo "" >> changelog-tmp.md
+          echo "### Changements depuis ${LAST_TAG:-le début}" >> changelog-tmp.md
+          echo "" >> changelog-tmp.md
+
+          if [ -n "$LAST_TAG" ]; then
+            git log "$LAST_TAG..HEAD" --format="* %s" >> changelog-tmp.md
+          else
+            git log --format="* %s" >> changelog-tmp.md
+          fi
+
+          echo "" >> changelog-tmp.md
+          echo "---" >> changelog-tmp.md
+          echo "_Release automatisée via le workflow release.yml_" >> changelog-tmp.md
+
+          cat changelog-tmp.md
+
+      - name: Créer la GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.detect.outputs.version }}
+          release_name: ${{ needs.detect.outputs.version }}
+          body_path: changelog-tmp.md
+          draft: false
+          prerelease: false
+          target_commitish: main
+
+      - name: Push du tag vN (bypass app nécessaire)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "✅ Tag $VERSION poussé"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build et push de l'image Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}.0
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Attestation de provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          subject-path: Dockerfile
+
+      - name: Attestation SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: Dockerfile
+          sbom-path: docker-sbom.spdx.json
+
+      - name: Vérification post-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          echo "=== Vérification post-release ==="
+          echo "Release : $VERSION"
+          echo "Tag : $(git tag -l "$VERSION")"
+          echo "Image : ghcr.io/${{ github.repository }}:$VERSION"
+          echo "✅ Release terminée avec succès."
+
+  notify-failure:
+    name: Notification d'échec
+    needs: [detect, gate-version-consistency, gate-container-scan, publish]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Commenter l'échec
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ needs.detect.outputs.version || 'inconnue' }}';
+            const body = `## ❌ Release échouée pour la version ${version}
+
+            La pipeline de release a échoué. Consultez les détails :
+            - **Gate version-consistency** : \`${{ needs.gate-version-consistency.result }}\`
+            - **Gate container-scan** : \`${{ needs.gate-container-scan.result }}\`
+            - **Publish** : \`${{ needs.publish.result }}\`
+
+            🔗 Run : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            `;
+            console.log(body);

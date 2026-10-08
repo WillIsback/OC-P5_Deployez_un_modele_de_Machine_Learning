@@ -1,0 +1,49 @@
+name: Autre
+description: Sujet ne correspondant à aucun des types précédents
+title: ""
+labels: ["type:other"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: "Veuillez justifier pourquoi cette issue ne rentre dans aucun des 4 autres templates (bug, feature, refactor, docs)."
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: Justification du choix « Autre »
+      description: Expliquez pourquoi ni bug, ni feature, ni refactor, ni docs
+      placeholder: "Ce sujet concerne la CI/CD, les outils de build, la gestion des dépendances, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Décrivez le sujet de manière structurée
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_outcome
+    attributes:
+      label: Résultat attendu
+      description: Que doit-il se passer une fois cette issue traitée ?
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: "---"
+
+  - type: dropdown
+    id: splittable
+    attributes:
+      label: Cette issue est-elle scindable en plusieurs branches/PR ?
+      description: Modélise R3 — le travail peut être réparti sur plusieurs branches puis PR
+      options:
+        - "Non, une seule PR suffit"
+        - "Oui, plusieurs branches/PR sont nécessaires"
+    validations:
+      required: true

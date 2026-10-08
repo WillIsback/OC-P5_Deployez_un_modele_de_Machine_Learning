@@ -1,0 +1,113 @@
+# Workflow : Qualité du code
+# Vérifie le formatage, le lint, la cohérence des commits et des manifests
+---
+name: ci-code-quality
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  ci-code-quality:
+    name: ci-code-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          cache-dependency-glob: "uv.lock"
+
+      - name: Synchroniser les dépendances
+        run: |
+          set -euo pipefail
+          uv sync --frozen --no-cache
+
+      - name: Linter (ruff check)
+        run: |
+          set -euo pipefail
+          uv run ruff check --output-format github .
+
+      - name: Formateur (ruff format --check)
+        run: |
+          set -euo pipefail
+          uv run ruff format --check --diff .
+
+      - name: Lint du titre de PR (commitlint / validation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PATTERN='^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert)(\(.+\))?!?: .+'
+          if ! echo "$PR_TITLE" | grep -qE "$PATTERN"; then
+            echo "❌ Le titre de la PR ne respecte pas Conventional Commits."
+            echo "   Titre : $PR_TITLE"
+            echo "   Pattern attendu : $PATTERN"
+            echo "   Exemples valides : feat: ..., fix(scope): ..., feat!: ..., chore: ..."
+            exit 1
+          fi
+          echo "✅ Titre de PR valide."
+
+      - name: Lint des Dockerfiles (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+          format: json
+
+      - name: Lint des workflows GitHub (actionlint)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Utilisation de l'image Docker actionlint pour éviter l'installation manuelle
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo" \
+            -w "/repo" \
+            ghcr.io/rhysd/actionlint:latest \
+            -color
+
+      - name: Analyse de sécurité des workflows (zizmor)
+        uses: astral-sh/ruff-action@v3
+        continue-on-error: true
+        with:
+          src: ".github/workflows/"
+          args: check --output-format github --ignore E999 --select S
+
+      - name: Vérification de l'intégrité du lockfile
+        run: |
+          set -euo pipefail
+          uv lock --check
+          echo "✅ Lockfile valide."
+
+      - name: Vérification des manifests (pyproject.toml)
+        shell: python
+        run: |
+          import tomllib, sys
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          assert 'project' in data, 'pyproject.toml: section [project] manquante'
+          assert 'dependencies' in data['project'], 'pyproject.toml: dependencies manquantes'
+          print('✅ pyproject.toml valide.')

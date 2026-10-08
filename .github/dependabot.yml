@@ -1,0 +1,53 @@
+# Dependabot — mises à jour automatisées des dépendances
+# Répond à Q6 : utilisation de versions épinglées (pinned)
+# docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+---
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Europe/Paris"
+    assignees: []
+    labels:
+      - "type:chore"
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 10
+    rebase-strategy: "auto"
+    reviewers:
+      - "<org>/maintainers"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Europe/Paris"
+    assignees: []
+    labels:
+      - "type:chore"
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    assignees: []
+    labels:
+      - "type:chore"
+      - "dependencies"
+    commit-message:
+      prefix: "chore(ci)"
+    open-pull-requests-limit: 10

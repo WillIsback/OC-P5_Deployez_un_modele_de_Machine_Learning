@@ -1,0 +1,199 @@
+# Workflow : Application des rulesets GitHub
+# Déclenché manuellement ou automatiquement sur push dans .github/rulesets/
+# Applique les rulesets de façon idempotente via l'API GitHub.
+---
+name: apply-rulesets
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Mode dry-run (affiche les diffs sans appliquer)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - ".github/rulesets/*.json"
+
+concurrency:
+  group: apply-rulesets-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  administration: write
+
+jobs:
+  apply:
+    name: Appliquer les rulesets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer gh CLI
+        run: |
+          set -euo pipefail
+          gh --version
+
+      - name: Authentification GitHub CLI
+        run: |
+          set -euo pipefail
+          echo "GH_TOKEN=${{ secrets.RULESETS_TOKEN || secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Lister les rulesets existants
+        id: list-existing
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG_REPO="${{ github.repository }}"
+          echo "Rulesets existants pour ${ORG_REPO}:"
+          gh api \
+            "repos/${ORG_REPO}/rulesets" \
+            --jq '.[] | "ID=\(.id) name=\(.name) target=\(.target)"' \
+            --method GET 2>/dev/null || echo "Aucun ruleset existant"
+          gh api "repos/${ORG_REPO}/rulesets" \
+            --jq '[.[] | {id: .id, name: .name, target: .target}]' \
+            --method GET 2>/dev/null > existing-rulesets.json || echo "[]" > existing-rulesets.json
+          echo "=== Rulesets existants ==="
+          cat existing-rulesets.json
+
+      - name: Appliquer le branch ruleset (main)
+        id: apply-branch-main
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG_REPO="${{ github.repository }}"
+          RULESET_FILE=".github/rulesets/branch-ruleset.json"
+          RULESET_NAME="Protection de main"
+
+          if [ ! -f "$RULESET_FILE" ]; then
+            echo "⚠️  $RULESET_FILE non trouvé, skip"
+            exit 0
+          fi
+
+          EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
+          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
+
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+            echo "Ruleset existant : ID=$EXISTING_ID (PUT)"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : comparaison simulée"
+              diff -u \
+                <(gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" --jq 'del(.id, ._links, .source, .enforcement, .node_id, .created_at, .updated_at)' 2>/dev/null || echo "") \
+                <(jq 'del(.bypass_actors[0].actor_id, .bypass_actors[1].integration_id)' "$RULESET_FILE") \
+                || true
+            else
+              echo "Mise à jour du ruleset ID=$EXISTING_ID..."
+              gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" \
+                --input "$RULESET_FILE" \
+                --method PUT \
+                --silent || echo "Échec PUT, tentative POST..."
+            fi
+          else
+            echo "Création de '$RULESET_NAME' (POST)..."
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : création simulée"
+              cat "$RULESET_FILE" | jq '{name, target, rules: [.[] | .type]}'
+            else
+              gh api "repos/${ORG_REPO}/rulesets" \
+                --input "$RULESET_FILE" \
+                --method POST \
+                --jq '{id, name, target, enforcement}'
+            fi
+          fi
+
+      - name: Appliquer le branch ruleset (feature branches)
+        id: apply-branch-feat
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG_REPO="${{ github.repository }}"
+          RULESET_FILE=".github/rulesets/feature-branch-ruleset.json"
+          RULESET_NAME="Protection des branches de travail"
+
+          if [ ! -f "$RULESET_FILE" ]; then
+            echo "⚠️  $RULESET_FILE non trouvé, skip"
+            exit 0
+          fi
+
+          EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
+          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
+
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+            echo "Ruleset existant : ID=$EXISTING_ID (PUT)"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : mise à jour simulée de $RULESET_NAME"
+            else
+              gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" \
+                --input "$RULESET_FILE" \
+                --method PUT \
+                --silent
+            fi
+          else
+            echo "Création de '$RULESET_NAME'..."
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : création simulée"
+            else
+              gh api "repos/${ORG_REPO}/rulesets" \
+                --input "$RULESET_FILE" \
+                --method POST \
+                --jq '{id, name, target, enforcement}'
+            fi
+          fi
+
+      - name: Appliquer le tag ruleset
+        id: apply-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG_REPO="${{ github.repository }}"
+          RULESET_FILE=".github/rulesets/tag-ruleset.json"
+          RULESET_NAME="Protection des tags de release"
+
+          if [ ! -f "$RULESET_FILE" ]; then
+            echo "⚠️  $RULESET_FILE non trouvé, skip"
+            exit 0
+          fi
+
+          EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
+          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
+
+          if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
+            echo "Ruleset existant : ID=$EXISTING_ID (PUT)"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : mise à jour simulée de $RULESET_NAME"
+            else
+              gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" \
+                --input "$RULESET_FILE" \
+                --method PUT \
+                --silent
+            fi
+          else
+            echo "Création de '$RULESET_NAME'..."
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🔍 Dry-run : création simulée"
+            else
+              gh api "repos/${ORG_REPO}/rulesets" \
+                --input "$RULESET_FILE" \
+                --method POST \
+                --jq '{id, name, target, enforcement}'
+            fi
+          fi
+
+      - name: Résumé des actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "## 📋 Résumé d'application des rulesets"
+          echo ""
+          echo "| Fichier | Statut |"
+          echo "|---------|--------|"
+          echo "| branch-ruleset.json (main) | ${{ steps.apply-branch-main.outcome }} |"
+          echo "| feature-branch-ruleset.json | ${{ steps.apply-branch-feat.outcome }} |"
+          echo "| tag-ruleset.json | ${{ steps.apply-tag.outcome }} |"

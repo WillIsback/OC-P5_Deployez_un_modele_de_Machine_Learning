@@ -1,0 +1,57 @@
+# Configuration Gitleaks
+# docs: https://github.com/gitleaks/gitleaks#configuration
+---
+title: "Gitleaks config"
+extend: null
+
+# Règles personnalisées
+rules:
+  - id: aws-access-token
+    description: AWS Access Token
+    regex: (?i)AKIA[0-9A-Z]{16}
+    secret-group: 0
+
+  - id: aws-secret-key
+    description: AWS Secret Key
+    regex: (?i)aws(.{0,20})?(?-i)['\"][0-9a-zA-Z\/+]{40}['\"]
+    secret-group: 0
+
+  - id: github-token
+    description: GitHub Token
+    regex: (?i)gh[pousr]_[0-9a-zA-Z_]{36,}
+    secret-group: 0
+
+  - id: gitlab-token
+    description: GitLab Token
+    regex: glpat-[0-9a-zA-Z\-_]{20,}
+    secret-group: 0
+
+  - id: slack-token
+    description: Slack Token
+    regex: xox[baprs]-[0-9a-zA-Z]{10,}
+    secret-group: 0
+
+  - id: private-key
+    description: Private Key
+    regex: (?i)-----BEGIN\s?[A-Z\s]+?PRIVATE\s?KEY-----
+    secret-group: 0
+
+  - id: generic-api-key
+    description: Generic API Key
+    regex: (?i)(api[_-]?key|apikey|api[_-]?secret|api[_-]?token)(.{0,20})['\"][0-9a-zA-Z_\-]{16,}['\"]
+    secret-group: 0
+
+# Chemins à ignorer
+allowlist:
+  paths:
+    - "*.lock"
+    - "*.svg"
+    - "*.png"
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.gif"
+    - "node_modules/"
+    - ".venv/"
+    - "vendor/"
+    - "__pycache__/"
+    - "*.pyc"

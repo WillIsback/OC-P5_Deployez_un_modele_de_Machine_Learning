@@ -1,0 +1,16 @@
+# Fichier d'exceptions de sécurité pour les analyses CI
+# Chaque exception DOIT avoir une date d'expiration.
+# Les exceptions non datées seront rejetées par le workflow de sécurité.
+---
+exceptions:
+  #- cve: CVE-2024-XXXXX
+  #  reason: "Fausse positive, ne s'applique pas à notre contexte (lib non utilisée)"
+  #  expires: "2025-06-01"
+  #  author: "username"
+  #  path: "dependencies/proprietary/*"
+  #
+  #- cve: CVE-2024-YYYYY
+  #  reason: "En attente de correctif upstream, ticket #123"
+  #  expires: "2024-12-31"
+  #  author: "maintainer"
+  #  path: "app/legacy/*"

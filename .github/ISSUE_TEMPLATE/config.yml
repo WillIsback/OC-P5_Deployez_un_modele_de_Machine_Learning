@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support technique
+    url: https://github.com/<org>/<repo>/discussions
+    about: Posez vos questions d'utilisation ou d'installation dans les discussions
+  - name: Rapport de sécurité
+    url: https://github.com/<org>/<repo>/security/advisories/new
+    about: Signalez une vulnérabilité de sécurité via GitHub Security Advisories (ne pas ouvrir d'issue publique)
