@@ -65,6 +65,7 @@ Format complet : `^(feat|fix|refactor|docs|chore|hotfix|release)/[a-z0-9._-]+$`
   - `ci-test`
   - `ci-security`
   - `ci-traceability`
+- En complément, une **revue de code IA non bloquante** est postée sur la PR par le workflow `ai-code-review` (déclenché après `ci-test`) via l'action [`WillIsback/code-review`](https://github.com/WillIsback/code-review).
 - Une revue de code est requise (1 approveur minimum).
 - **Merge en squash uniquement (R6)** — l'historique de `main` est linéaire.
 
@@ -138,3 +139,4 @@ docker run -p 8080:8080 <image>
 - [Conventional Commits](https://conventionalcommits.org)
 - [Semantic Versionning](docs/policies/semver.md)
 - [Politiques de sécurité](docs/policies/security-gates.md)
+- [Action de revue de code IA `code-review`](https://github.com/WillIsback/code-review)
