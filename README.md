@@ -1,84 +1,81 @@
 # P5 — Déployez un modèle de Machine Learning
 
-Cette mission suit un scénario de projet professionnel. Déployer un modèle de machine learning à l'aide d'outils modernes.
+**Auteur** : William Derue  
+**Formation** : [AI Engineer](https://openclassrooms.com/fr/paths/1011-ai-engineer) — OpenClassrooms  
+**Projet** : 5 — Déployez un modèle de Machine Learning  
+**Date** : 2026
 
-## 📊 Flux de travail
+---
 
-```d2
-direction: down
+## 🏢 Contexte — Scénario de mission
 
-Issue: "Issue\nbug · feature · refactor · docs · other" {
-  shape: note
-}
+Vous êtes **freelance spécialisé en machine learning** et vous venez de recevoir une demande de la part de votre client **Futurisys**, une entreprise innovante qui souhaite rendre ses modèles de machine learning opérationnels et accessibles via une API performante.
 
-BranchA: "Branch A"
-BranchB: "Branch B"
+Le directeur technique de Futurisys, **Aurélien**, vous formule la demande suivante :
 
-PR: "Pull Request\n(squash merge)" {
-  shape: diamond
-}
+> *"Nous avons besoin que vous déployiez notre modèle de machine learning en production. Pour cela, vous allez :*
+> 1. *Créer une API avec FastAPI pour exposer le modèle ;*
+> 2. *Écrire des tests unitaires avec Pytest pour garantir sa fiabilité ;*
+> 3. *Gérer la version du code avec Git pour une collaboration fluide."*
 
-CIGroup: {
-  CI1: "ci-code-quality"
-  CI2: "ci-test"
-  CI3: "ci-security"
-  CI4: "ci-traceability"
-}
+L'objectif est de **rendre le modèle utilisable en production** tout en respectant les meilleures pratiques de l'ingénierie logicielle.
 
-Merge: "Merge dans main"
+---
 
-ReleaseCD: "Workflow Release" {
-  shape: diamond
-}
+## 📦 Livrables
 
-Gates: {
-  GateVersion: "Gate\ncohérence de version"
-  GateContainer: "Gate\nscan container"
-}
+### 1. Dépôt Git structuré
 
-Bump: "Bump semver"
+- Code source complet
+- `requirements.txt` / `uv.lock` / `pyproject.toml`
+- Historique de commits clair (branches, tags, Conventional Commits)
+- README complet
 
-Publish: {
-  Release: "GitHub Release\n+ Tag vX.Y.Z"
-  Docker: "Image Docker\nGHCR + SBOM\n+ Attestation"
-}
+### 2. API de machine learning
 
-Issue -> BranchA
-Issue -> BranchB
+- Développée avec **FastAPI**
+- Expose le modèle de ML via des endpoints REST
+- Documentation intégrée (Swagger / OpenAPI)
+- Endpoints, schémas de données, exemples d'appels
 
-BranchA -> PR
-BranchB -> PR
+### 3. Tests unitaires & fonctionnels
 
-PR -> CIGroup.CI1: "checks requis"
-PR -> CIGroup.CI2
-PR -> CIGroup.CI3
-PR -> CIGroup.CI4
-PR -> Merge: "review"
+- **Pytest** — couverture des cas critiques et scénarios d'erreur
+- Rapport de couverture (`pytest-cov`)
+- Tests d'intégration de l'API
 
-Merge -> ReleaseCD
+### 4. Base de données PostgreSQL
 
-ReleaseCD -> Gates.GateVersion
-ReleaseCD -> Gates.GateContainer
+- Script SQL / Python pour la création de la base et des tables
+- Modèle de données documenté
+- Exemples d'entrées (inputs / outputs du modèle ML)
+- Scripts d'interrogation et d'interaction avec le modèle
 
-Gates.GateVersion -> Bump: "PASS"
-Gates.GateContainer -> Bump: "PASS"
+### 5. Pipeline CI/CD
 
-Bump -> Publish.Release
-Bump -> Publish.Docker
-```
+- Configuration complète dans `.github/workflows/`
+- Gestion des environnements (dev, test, prod)
+- Intégration des secrets
+- Rulesets GitHub (branches + tags)
+
+---
 
 ## 🏗️ Stack technique
 
 | Composant | Technologie |
 |-----------|-------------|
-| Runtime | Python 3.12+ |
-| Framework | FastAPI |
-| Gestionnaire de paquets | uv |
-| Linter / Formateur | ruff |
-| Tests | pytest + coverage |
-| Container | Docker |
-| Scan de sécurité | Trivy, CodeQL, Gitleaks |
-| CI/CD | GitHub Actions |
+| **Runtime** | Python 3.12+ |
+| **Framework API** | FastAPI |
+| **Gestionnaire de paquets** | [uv](https://github.com/astral-sh/uv) |
+| **Base de données** | PostgreSQL |
+| **Linter / Formateur** | ruff |
+| **Tests** | pytest + coverage |
+| **Container** | Docker |
+| **Scan de sécurité** | Trivy, CodeQL, Gitleaks |
+| **CI/CD** | GitHub Actions |
+| **Diagramme** | [D2](https://d2lang.com/) |
+
+---
 
 ## 🚀 Démarrage rapide
 
@@ -103,54 +100,71 @@ uv run ruff check .
 uv run ruff format .
 ```
 
+---
+
 ## 📁 Structure du dépôt
 
 ```
 .github/
-├── dependabot.yml           # Mise à jour automatique des dépendances
-├── ISSUE_TEMPLATE/           # Templates d'issues (5 types + config)
-├── PULL_REQUEST_TEMPLATE.md  # Template de PR
-├── rulesets/                 # Rulesets GitHub (branches + tags)
-├── security-exceptions.yml  # Exceptions de sécurité
-└── workflows/                # Workflows CI/CD
-    ├── apply-rulesets.yml      # Application des rulesets
-    ├── ci-code-quality.yml     # Qualité du code
-    ├── ci-security.yml         # Sécurité (SCA, SAST, secrets, IaC)
-    ├── ci-test.yml             # Tests unitaires + couverture
-    ├── ci-traceability.yml     # Traçabilité issues/PR
-    └── release.yml             # Release (CD)
-app/                           # Code source de l'application
-CONTRIBUTING.md                # Guide de contribution
-RELEASE.md                     # Runbook de release
-docs/policies/
-├── semver.md                  # Politique de versionnement
-└── security-gates.md          # Politique de sécurité
+├── dependabot.yml              # Mise à jour automatique des dépendances
+├── ISSUE_TEMPLATE/              # Templates d'issues (5 types + config)
+├── PULL_REQUEST_TEMPLATE.md     # Template de PR
+├── rulesets/                    # Rulesets GitHub (branches + tags)
+├── security-exceptions.yml     # Exceptions de sécurité
+└── workflows/                   # Workflows CI/CD
+    ├── apply-rulesets.yml        # Application idempotente des rulesets
+    ├── ci-code-quality.yml       # Qualité du code (lint, format, actionlint)
+    ├── ci-security.yml           # Sécurité (SCA, SAST, secrets, IaC)
+    ├── ci-test.yml               # Tests unitaires + couverture
+    ├── ci-traceability.yml       # Traçabilité issues/PR
+    └── release.yml               # Release automatisée (CD)
+app/                              # Code source de l'application FastAPI
+docs/
+├── ci-cd/README.md               # Documentation du pipeline CI/CD
+├── diagrams/
+│   ├── workflow.d2               # Source D2 du diagramme
+│   └── workflow.svg              # SVG généré
+└── policies/
+    ├── semver.md                 # Politique de versionnement sémantique
+    └── security-gates.md         # Politique des gates de sécurité
+CONTRIBUTING.md                   # Guide de contribution
+RELEASE.md                        # Runbook de release
 ```
+
+---
 
 ## 📚 Documentation
 
-- [Guide de contribution](CONTRIBUTING.md)
-- [Runbook Release](RELEASE.md)
-- [Politique semver](docs/policies/semver.md)
-- [Politique sécurité](docs/policies/security-gates.md)
+| Document | Description |
+|----------|-------------|
+| [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows, rulesets, sécurité du pipeline |
+| [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
+| [Runbook Release](RELEASE.md) | Semver, gates CD, rollback, incidents |
+| [Politique semver](docs/policies/semver.md) | Règle du max, comportement v0.x |
+| [Politique sécurité](docs/policies/security-gates.md) | Seuils SCA/SAST/secrets, exceptions |
+
+---
 
 ## 🔒 Sécurité
 
-- Analyse SAST (CodeQL) sur chaque PR
-- Scan des dépendances (Trivy + Dependency Review)
-- Détection de secrets (Gitleaks)
-- Scan des containers avant publication
+- Analyse **SAST** (CodeQL) sur chaque PR
+- Scan des dépendances (**Trivy + Dependency Review**)
+- Détection de secrets (**Gitleaks**)
+- Scan des containers avant publication (**Trivy**)
 - Protection des branches (push direct interdit)
 - Protection des tags (immuables)
+- Permissions minimales des workflows
 
 ## 📦 Release
 
-Les releases sont automatisées :
-1. Merge dans `main` → déclenchement du workflow `release`
-2. Calcul de version (Semver automatique)
-3. Gates CD (cohérence de version + scan container)
+Les releases sont entièrement automatisées via le workflow `release.yml` :
+
+1. Merge dans `main` → déclenchement du workflow
+2. Calcul de version (Semver automatique, max des bumps)
+3. Gates CD bloquantes (cohérence de version + scan container)
 4. Création GitHub Release + tag `vX.Y.Z`
-5. Publication image Docker sur GHCR
+5. Publication image Docker sur **GHCR** avec attestations SBOM
+6. Sérialisation stricte : pas de releases en parallèle
 
 ## 📄 Licence
 

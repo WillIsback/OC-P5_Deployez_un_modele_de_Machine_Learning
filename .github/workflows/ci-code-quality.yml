@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
 
       - name: Installer uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           version: "latest"
           cache-dependency-glob: "uv.lock"
@@ -43,23 +43,24 @@ jobs:
       - name: Synchroniser les dépendances
         run: |
           set -euo pipefail
-          uv sync --frozen --no-cache
+          uv sync --frozen --no-cache --no-build --no-install-project
 
       - name: Linter (ruff check)
         run: |
           set -euo pipefail
-          uv run ruff check --output-format github .
+          .venv/bin/ruff check --output-format github .
 
       - name: Formateur (ruff format --check)
         run: |
           set -euo pipefail
-          uv run ruff format --check --diff .
+          .venv/bin/ruff format --check --diff .
 
       - name: Lint du titre de PR (commitlint / validation)
         shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          PR_TITLE="${{ github.event.pull_request.title }}"
           PATTERN='^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert)(\(.+\))?!?: .+'
           if ! echo "$PR_TITLE" | grep -qE "$PATTERN"; then
             echo "❌ Le titre de la PR ne respecte pas Conventional Commits."
@@ -71,7 +72,7 @@ jobs:
           echo "✅ Titre de PR valide."
 
       - name: Lint des Dockerfiles (hadolint)
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
           dockerfile: Dockerfile
           failure-threshold: error
@@ -89,7 +90,7 @@ jobs:
             -color
 
       - name: Analyse de sécurité des workflows (zizmor)
-        uses: astral-sh/ruff-action@v3
+        uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         continue-on-error: true
         with:
           src: ".github/workflows/"

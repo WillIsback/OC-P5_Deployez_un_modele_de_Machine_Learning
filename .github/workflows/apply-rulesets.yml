@@ -23,6 +23,11 @@ permissions:
   contents: read
   administration: write
 
+env:
+  # Flag dry-run défini une fois pour toutes les étapes
+  # vrai uniquement en workflow_dispatch, toujours faux sur push
+  DRY_RUN: ${{ github.event.inputs.dry_run == 'true' || false }}
+
 jobs:
   apply:
     name: Appliquer les rulesets
@@ -35,15 +40,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Installer gh CLI
-        run: |
-          set -euo pipefail
-          gh --version
-
       - name: Authentification GitHub CLI
+        env:
+          GH_TOKEN: ${{ secrets.RULESETS_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          echo "GH_TOKEN=${{ secrets.RULESETS_TOKEN || secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+          gh auth status
 
       - name: Lister les rulesets existants
         id: list-existing
@@ -52,15 +54,15 @@ jobs:
           set -euo pipefail
           ORG_REPO="${{ github.repository }}"
           echo "Rulesets existants pour ${ORG_REPO}:"
-          gh api \
-            "repos/${ORG_REPO}/rulesets" \
-            --jq '.[] | "ID=\(.id) name=\(.name) target=\(.target)"' \
-            --method GET 2>/dev/null || echo "Aucun ruleset existant"
-          gh api "repos/${ORG_REPO}/rulesets" \
+          if gh api "repos/${ORG_REPO}/rulesets" \
             --jq '[.[] | {id: .id, name: .name, target: .target}]' \
-            --method GET 2>/dev/null > existing-rulesets.json || echo "[]" > existing-rulesets.json
-          echo "=== Rulesets existants ==="
-          cat existing-rulesets.json
+            > existing-rulesets.json 2>&1; then
+            echo "=== Rulesets existants ==="
+            cat existing-rulesets.json
+          else
+            echo "[]" > existing-rulesets.json
+            echo "Aucun ruleset existant ou erreur de récupération"
+          fi
 
       - name: Appliquer le branch ruleset (main)
         id: apply-branch-main
@@ -77,28 +79,30 @@ jobs:
           fi
 
           EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
-          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
 
           if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
             echo "Ruleset existant : ID=$EXISTING_ID (PUT)"
             if [ "$DRY_RUN" = "true" ]; then
               echo "🔍 Dry-run : comparaison simulée"
               diff -u \
-                <(gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" --jq 'del(.id, ._links, .source, .enforcement, .node_id, .created_at, .updated_at)' 2>/dev/null || echo "") \
-                <(jq 'del(.bypass_actors[0].actor_id, .bypass_actors[1].integration_id)' "$RULESET_FILE") \
+                <(gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" \
+                  --jq 'del(.id, ._links, .source, .enforcement, .node_id, .created_at, .updated_at)' \
+                  2>/dev/null || echo "") \
+                <(jq 'del(.bypass_actors[0].actor_id, .bypass_actors[1].integration_id)' "$RULESET_FILE" \
+                  2>/dev/null || echo "") \
                 || true
             else
               echo "Mise à jour du ruleset ID=$EXISTING_ID..."
               gh api "repos/${ORG_REPO}/rulesets/${EXISTING_ID}" \
                 --input "$RULESET_FILE" \
                 --method PUT \
-                --silent || echo "Échec PUT, tentative POST..."
+                --silent
             fi
           else
             echo "Création de '$RULESET_NAME' (POST)..."
             if [ "$DRY_RUN" = "true" ]; then
               echo "🔍 Dry-run : création simulée"
-              cat "$RULESET_FILE" | jq '{name, target, rules: [.[] | .type]}'
+              jq '{name, target, rules: [.[] | .type]}' "$RULESET_FILE"
             else
               gh api "repos/${ORG_REPO}/rulesets" \
                 --input "$RULESET_FILE" \
@@ -122,7 +126,6 @@ jobs:
           fi
 
           EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
-          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
 
           if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
             echo "Ruleset existant : ID=$EXISTING_ID (PUT)"
@@ -161,7 +164,6 @@ jobs:
           fi
 
           EXISTING_ID=$(jq -r --arg name "$RULESET_NAME" '.[] | select(.name == $name) | .id' existing-rulesets.json)
-          DRY_RUN="${{ github.event.inputs.dry_run == 'true' || false }}"
 
           if [ -n "$EXISTING_ID" ] && [ "$EXISTING_ID" != "null" ]; then
             echo "Ruleset existant : ID=$EXISTING_ID (PUT)"

@@ -33,9 +33,10 @@ jobs:
       - name: Vérifier la référence aux issues (R1 / R3)
         id: check-issues
         shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          PR_BODY="${{ github.event.pull_request.body }}"
           echo "Vérification de la présence d'une référence d'issue..."
           echo "$PR_BODY" > /tmp/pr-body.txt
 
@@ -51,9 +52,10 @@ jobs:
 
       - name: Vérifier le type de la PR
         shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          PR_TITLE="${{ github.event.pull_request.title }}"
           echo "Titre de la PR : $PR_TITLE"
 
           # Extraire le type du titre (Conventional Commits)
@@ -70,10 +72,11 @@ jobs:
 
       - name: Vérifier la cohérence semver (R7 / Q7)
         shell: bash
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          PR_BODY="${{ github.event.pull_request.body }}"
-          PR_TITLE="${{ github.event.pull_request.title }}"
 
           # Déterminer le bump déclaré dans le corps de la PR (section "Impact semver attendu")
           DECLARED_BUMP=""

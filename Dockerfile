@@ -15,12 +15,12 @@ COPY pyproject.toml uv.lock ./
 COPY app/ ./app/
 
 # Install the application dependencies.
-RUN uv sync --frozen --no-cache \
+RUN uv sync --frozen --no-cache --no-build --no-install-project \
     && chown -R appuser:appuser /app
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD uv run python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
+    CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
 
 # Switch to non-root user
 USER appuser
