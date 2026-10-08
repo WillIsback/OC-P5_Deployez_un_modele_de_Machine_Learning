@@ -1,7 +1,6 @@
 # Workflow : Application des rulesets GitHub
 # Déclenché manuellement ou automatiquement sur push dans .github/rulesets/
 # Applique les rulesets de façon idempotente via l'API GitHub.
----
 name: apply-rulesets
 
 on:

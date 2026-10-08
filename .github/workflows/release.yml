@@ -1,7 +1,6 @@
 # Workflow : Release (CD)
 # Déclenché sur push dans main ou manuellement (workflow_dispatch)
 # Applique R7/R8/R9 : gates CD, bump semver, release, tag, image Docker
----
 name: release
 
 on:
@@ -34,10 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      version: ${{ steps.calc.outputs.version }}
-      bump: ${{ steps.calc.outputs.bump }}
-      skip: ${{ steps.check.outputs.skip }}
-      has_commits: ${{ steps.check.outputs.has_commits }}
+      version: ${{ steps.calc.outputs.version || steps.skip-output.outputs.version || 'v0.0.0' }}
+      bump: ${{ steps.calc.outputs.bump || steps.skip-output.outputs.bump || 'none' }}
 
     steps:
       - name: Checkout du code
@@ -255,16 +252,19 @@ jobs:
 
       - name: Scan de l'image avec Trivy
         id: scan
-        uses: aquasecurity/trivy-action@0.30.1
-        with:
-          scan-type: "image"
-          image-ref: ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
-          format: "sarif"
-          output: "trivy-image.sarif"
-          exit-code: "1"
-          severity: "CRITICAL"
-          skip-dirs: ""
-          skip-files: ""
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}:/workspace" \
+            aquasecurity/trivy:latest \
+            image \
+            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }} \
+            --severity CRITICAL \
+            --format sarif \
+            --output /workspace/trivy-image.sarif \
+            --exit-code 1
 
       - name: Upload SARIF Trivy (container)
         if: always()
@@ -362,18 +362,21 @@ jobs:
 
           cat changelog-tmp.md
 
-      - name: Créer la GitHub Release
+      - name: Créer la GitHub Release avec gh CLI
         id: create_release
-        uses: actions/create-release@v1
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ needs.detect.outputs.version }}
-          release_name: ${{ needs.detect.outputs.version }}
-          body_path: changelog-tmp.md
-          draft: false
-          prerelease: false
-          target_commitish: main
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          echo "Création de la release $VERSION..."
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file changelog-tmp.md \
+            --target "${{ github.sha }}" \
+            --latest
+          echo "✅ Release $VERSION créée"
 
       - name: Push du tag vN (bypass app nécessaire)
         shell: bash
@@ -394,6 +397,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build et push de l'image Docker
+        id: build-and-push
         uses: docker/build-push-action@v6
         with:
           context: .

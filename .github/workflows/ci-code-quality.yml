@@ -1,6 +1,5 @@
 # Workflow : Qualité du code
 # Vérifie le formatage, le lint, la cohérence des commits et des manifests
----
 name: ci-code-quality
 
 on:

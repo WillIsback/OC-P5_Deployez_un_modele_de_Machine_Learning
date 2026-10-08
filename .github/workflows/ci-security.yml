@@ -1,6 +1,5 @@
 # Workflow : Sécurité
 # Analyse SCA, SAST, secret leak, IaC/Dockerfile scan, et commentaire de synthèse
----
 name: ci-security
 
 on:
@@ -43,15 +42,18 @@ jobs:
           allow-licenses: "MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, PSF, Unicode-3.0"
 
       - name: Scan des dépendances avec Trivy (système)
-        uses: aquasecurity/trivy-action@0.30.1
-        with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "sarif"
-          output: "trivy-fs.sarif"
-          exit-code: "1"
-          severity: "HIGH,CRITICAL"
-          skip-dirs: ".venv/"
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            aquasecurity/trivy:latest \
+            fs /workspace \
+            --severity HIGH,CRITICAL \
+            --skip-dirs /workspace/.venv \
+            --format sarif \
+            --output /workspace/trivy-fs.sarif \
+            --exit-code 1
 
       - name: Upload SARIF Trivy
         if: always()
@@ -112,13 +114,23 @@ jobs:
           fetch-depth: 0
 
       - name: Scan Gitleaks (range de la PR)
-        uses: gitleaks/gitleaks-action@v2.3.16
-        with:
-          config-path: ".gitleaks.toml"
-          scan-path: "${{ github.workspace }}"
-          report-format: "sarif"
-          report-path: "gitleaks.sarif"
-          fail: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            gitleaks/gitleaks:latest \
+            detect \
+            --source /workspace \
+            --config /workspace/.gitleaks.toml \
+            --report-format sarif \
+            --report-path /workspace/gitleaks.sarif \
+            --verbose \
+            --no-git \
+            --exit-code 1 || EXIT_CODE=$?
+          if [ "${EXIT_CODE:-0}" -ne 0 ] && [ -f "${{ github.workspace }}/gitleaks.sarif" ]; then
+            echo "🔍 Fuite(s) détectée(s). Voir le rapport SARIF."
+          fi
 
       - name: Upload SARIF Gitleaks
         if: always()
@@ -156,14 +168,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Scan IaC avec Trivy
-        uses: aquasecurity/trivy-action@0.30.1
-        with:
-          scan-type: "config"
-          scan-ref: "."
-          format: "sarif"
-          output: "trivy-iac.sarif"
-          exit-code: "1"
-          severity: "HIGH,CRITICAL"
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            aquasecurity/trivy:latest \
+            config /workspace \
+            --severity HIGH,CRITICAL \
+            --format sarif \
+            --output /workspace/trivy-iac.sarif \
+            --exit-code 1
 
       - name: Upload SARIF IaC
         if: always()

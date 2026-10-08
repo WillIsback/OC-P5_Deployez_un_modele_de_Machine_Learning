@@ -1,6 +1,5 @@
 # Workflow : Tests
 # Exécute les tests unitaires, la couverture, le dry-run et valide les artefacts de configuration
----
 name: ci-test
 
 on:
@@ -114,15 +113,11 @@ jobs:
           print("✅ Dry-run terminé, aucun fichier modifié.")
 
       - name: Validation YAML des workflows et configs
-        uses: ibixtor/yamllint-github-action@v1.13.1
-        with:
-          path: ".github/"
-          config_data: |
-            extends: default
-            rules:
-              line-length: disable
-              document-start: disable
-              brackets: disable
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install yamllint -q
+          yamllint -d '{"extends": "default", "rules": {"line-length": "disable", "document-start": "disable", "brackets": "disable"}}' .github/
 
       - name: Validation JSON des rulesets (check-jsonschema)
         shell: bash

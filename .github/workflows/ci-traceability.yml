@@ -1,7 +1,6 @@
 # Workflow : Traçabilité (R1 / R3 / R7)
 # Vérifie que la PR est bien adossée à au moins une issue, que le type est valide,
 # et qu'il n'y a pas d'incohérence entre la déclaration semver et l'analyse des commits.
----
 name: ci-traceability
 
 on:
