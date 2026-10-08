@@ -1,0 +1,37 @@
+# Workflow : Triage IA des issues
+#
+# À l'ouverture d'une issue, poste une analyse structurée (résumé, informations
+# manquantes, doublons potentiels, labels suggérés, prochaines étapes).
+# Filtré sur les auteurs de confiance pour éviter de déclencher l'inférence sur
+# du contenu externe.
+#
+# Secrets requis : VLLM_URL, VLLM_API_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
+# Variables optionnelles : VLLM_MODEL, VLLM_TIMEOUT, VLLM_RETRIES
+name: ai-issue-triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    if: contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: AI Issue Triage
+        uses: WillIsback/code-review@ef384e905492f048bc4c07ded5cb2129727793bb # v0.6.0
+        with:
+          target-type: issue
+          target-number: ${{ github.event.issue.number }}
+          vllm-model: ${{ vars.VLLM_MODEL || '' }}
+          vllm-timeout: ${{ vars.VLLM_TIMEOUT || '120' }}
+          vllm-retries: ${{ vars.VLLM_RETRIES || '2' }}
+          vllm-url: ${{ secrets.VLLM_URL }}
+          vllm-api-key: ${{ secrets.VLLM_API_KEY }}
+          extra-headers: |
+            CF-Access-Client-Id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+            CF-Access-Client-Secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
