@@ -101,3 +101,16 @@ Toute étape peut être rejouée via `workflow_dispatch bump:none` en cas d'inci
   - `contents: write` (push tag + release)
   - `packages: write` (GHCR)
   - `id-token: write` (attestations)
+- **Bypass du Tag Ruleset pour l'App de release** :
+  Le ruleset de tags bloque la création/modification/suppression de tags pour les humains.
+  Le workflow `release.yml` a besoin de pouvoir créer des tags `v*`. Ajoutez manuellement l'App
+  (GitHub App utilisée par le workflow) comme `bypass_actor` de type `Integration` dans le
+  Tag Ruleset après sa création via l'UI GitHub :
+  1. Aller dans Settings > Rules > Rulesets > "Protection des tags de release"
+  2. Cliquer sur "Edit" > "Bypass actors"
+  3. Ajouter l'App avec `bypass_mode: always`
+  4. Sauvegarder
+
+  L'ID de l'App n'étant pas connu au moment de la création du ruleset via l'API,
+  cette étape manuelle est nécessaire. Le ruleset livré dans `.github/rulesets/` contient
+  uniquement le bypass `RepositoryRole: admin`.

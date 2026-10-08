@@ -10,16 +10,9 @@
   },
   "bypass_actors": [
     {
-      "actor_id": null,
+      "actor_id": 5,
       "actor_type": "RepositoryRole",
-      "bypass_mode": "always",
-      "repository_role_id": 2
-    },
-    {
-      "actor_id": null,
-      "actor_type": "Integration",
-      "bypass_mode": "always",
-      "integration_id": null
+      "bypass_mode": "always"
     }
   ],
   "rules": [
