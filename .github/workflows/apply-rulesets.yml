@@ -21,7 +21,6 @@ concurrency:
 
 permissions:
   contents: read
-  administration: write
 
 env:
   # Flag dry-run défini une fois pour toutes les étapes
