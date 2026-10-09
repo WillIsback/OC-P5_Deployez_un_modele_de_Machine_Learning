@@ -32,6 +32,8 @@ jobs:
     name: Appliquer les rulesets
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.RULESETS_TOKEN }}
 
     steps:
       - name: Checkout du code
@@ -40,11 +42,13 @@ jobs:
           fetch-depth: 0
 
       - name: Authentification GitHub CLI
-        env:
-          GH_TOKEN: ${{ secrets.RULESETS_TOKEN || github.token }}
         run: |
           set -euo pipefail
-          gh auth status
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::Secret RULESETS_TOKEN non configuré — application des rulesets ignorée."
+          else
+            gh auth status
+          fi
 
       - name: Lister les rulesets existants
         id: list-existing
@@ -71,6 +75,11 @@ jobs:
           ORG_REPO="${{ github.repository }}"
           RULESET_FILE=".github/rulesets/branch-ruleset.json"
           RULESET_NAME="Protection de main"
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::$RULESET_NAME ignoré : secret RULESETS_TOKEN non configuré."
+            exit 0
+          fi
 
           if [ ! -f "$RULESET_FILE" ]; then
             echo "⚠️  $RULESET_FILE non trouvé, skip"
@@ -119,6 +128,11 @@ jobs:
           RULESET_FILE=".github/rulesets/feature-branch-ruleset.json"
           RULESET_NAME="Protection des branches de travail"
 
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::$RULESET_NAME ignoré : secret RULESETS_TOKEN non configuré."
+            exit 0
+          fi
+
           if [ ! -f "$RULESET_FILE" ]; then
             echo "⚠️  $RULESET_FILE non trouvé, skip"
             exit 0
@@ -156,6 +170,11 @@ jobs:
           ORG_REPO="${{ github.repository }}"
           RULESET_FILE=".github/rulesets/tag-ruleset.json"
           RULESET_NAME="Protection des tags de release"
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::$RULESET_NAME ignoré : secret RULESETS_TOKEN non configuré."
+            exit 0
+          fi
 
           if [ ! -f "$RULESET_FILE" ]; then
             echo "⚠️  $RULESET_FILE non trouvé, skip"
