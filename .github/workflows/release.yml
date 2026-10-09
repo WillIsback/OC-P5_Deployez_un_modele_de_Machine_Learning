@@ -88,28 +88,38 @@ jobs:
           echo "Composants actuels : $MAJOR.$MINOR.$PATCH"
 
           # Déterminer le bump
-          BUMP="${BUMP:-patch}"  # valeur par défaut si aucune détection
           if [ "${{ inputs.bump }}" != "" ] && [ "${{ inputs.bump }}" != "auto" ]; then
             BUMP="${{ inputs.bump }}"
             echo "ℹ️  Bump forcé par workflow_dispatch : $BUMP"
           else
-            # Analyse des commits depuis le dernier tag
-            BUMP="patch"
+            # Seuls feat / fix / perf (ou breaking change) déclenchent une release.
+            # docs, chore, ci, build, test, style, refactor sont ignorés.
+            BUMP="none"
             echo "Analyse des commits depuis $LAST_TAG..."
 
-            # Parcourir les titres de PR / commits
-            for COMMIT in $(git log --format=%s "$LAST_TAG..HEAD" 2>/dev/null); do
-              if echo "$COMMIT" | grep -qE '!|BREAKING CHANGE'; then
+            while IFS= read -r COMMIT; do
+              [ -z "$COMMIT" ] && continue
+              if echo "$COMMIT" | grep -qE '^[a-zA-Z]+(\(.+\))?!:'; then
                 BUMP="major"
-                echo "   🔴 Breaking change détecté → major"
-              elif echo "$COMMIT" | grep -qE '^feat' && [ "$BUMP" != "major" ]; then
+                echo "   🔴 Breaking change → major : $COMMIT"
+              elif echo "$COMMIT" | grep -qE '^feat(\(.+\))?!?:' && [ "$BUMP" != "major" ]; then
                 BUMP="minor"
-                echo "   🟢 feat détecté → minor"
+                echo "   🟢 feat → minor : $COMMIT"
+              elif echo "$COMMIT" | grep -qE '^(fix|perf)(\(.+\))?!?:' && [ "$BUMP" = "none" ]; then
+                BUMP="patch"
+                echo "   🔵 fix/perf → patch : $COMMIT"
               fi
-            done
+            done < <(git log --format=%s "$LAST_TAG..HEAD" 2>/dev/null || true)
 
             # Q7 : max des bumps — déjà implémenté par la boucle (major > minor > patch)
             echo "Bump calculé : $BUMP"
+          fi
+
+          if [ "$BUMP" = "none" ] || [ -z "$BUMP" ]; then
+            echo "ℹ️  Aucun commit éligible (feat/fix/perf) — aucune release ne sera publiée."
+            echo "version=skipped" >> "$GITHUB_OUTPUT"
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           # Appliquer le bump
@@ -125,9 +135,6 @@ jobs:
               ;;
             patch)
               PATCH=$((PATCH + 1))
-              ;;
-            none)
-              echo "ℹ️  Bump 'none' — conservation de la version actuelle."
               ;;
           esac
 

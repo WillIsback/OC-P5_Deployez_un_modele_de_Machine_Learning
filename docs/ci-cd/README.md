@@ -76,7 +76,7 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 
 | Job | Rôle |
 |-----|------|
-| `detect` | Calcule la version semver depuis le dernier tag Git (max des bumps) |
+| `detect` | Calcule la version semver depuis le dernier tag Git (max des bumps). Seuls `feat`, `fix`, `perf` ou un breaking change déclenchent une release ; sinon `version=skipped` |
 | `gate-version-consistency` | Vérifie que le tag n'existe pas, que la version est cohérente |
 | `gate-container-scan` | Build l'image Docker, scan Trivy (seuil CRITICAL), vérifie HEALTHCHECK, non-root |
 | `publish` | CHANGELOG → GitHub Release → tag `v*` → image Docker GHCR → attestations SBOM |
@@ -90,7 +90,7 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 |---------|-------|-------------------|
 | `branch-ruleset.json` | Branche `main` | Push direct interdit ; 1 review obligatoire ; 4 checks CI + 2 gates CD bloquants ; squash merge ; pattern branche + commit Conventionnal Commits ; merge queue ; secret scanning |
 | `feature-branch-ruleset.json` | Branches `feat/*`, `fix/*`, etc. | Force-push autorisé (rebase) ; pattern de nommage validé |
-| `tag-ruleset.json` | Tags `v*` | Création/modification/suppression bloquées pour les humains ; format `vX.Y.Z` ; bypass admin possible |
+| `tag-ruleset.json` | Tags `v*` | Modification/suppression bloquées ; création autorisée (release automatisée) ; bypass admin possible |
 
 Les rulesets sont appliqués idempotemment via le workflow `apply-rulesets.yml` (manuel ou automatique sur push dans `.github/rulesets/`).
 
@@ -99,7 +99,7 @@ Les rulesets sont appliqués idempotemment via le workflow `apply-rulesets.yml` 
 ## 🔒 Sécurité du pipeline
 
 - **Permissions minimales** : chaque workflow et chaque job déclare `permissions:` au plus restrictif.
-- **Actions épinglées** : toutes les actions sont référencées par version majeure (`@v4`, `@v3`).
+- **Actions épinglées** : toutes les actions tierces sont référencées par commit SHA (`@<sha>`).
 - **Analyse du pipeline** : `actionlint` + `zizmor` dans `ci-code-quality.yml`.
 - **Secrets** : `RULESETS_TOKEN` documenté dans `RELEASE.md` ; le `GITHUB_TOKEN` est utilisé avec les permissions minimales nécessaires.
 - **Scan container avant publication** : gate bloquante `gate-container-scan`.

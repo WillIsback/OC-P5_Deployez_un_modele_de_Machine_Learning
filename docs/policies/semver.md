@@ -19,7 +19,17 @@ v <majeur> . <mineur> . <patch>
 |-----------|-------------|
 | **Majeure (X)** | Breaking change (`!`, `BREAKING CHANGE:`) |
 | **Mineure (Y)** | Nouvelle fonctionnalité (`feat:`) rétrocompatible |
-| **Patch (Z)** | Correction, refactoring, documentation, maintenance |
+| **Patch (Z)** | Correction (`fix:`) ou performance (`perf:`) rétrocompatible |
+
+## 🚫 Types sans release
+
+Les commits qui ne modifient pas le comportement publié **ne déclenchent aucune release** :
+
+`docs:`, `chore:`, `ci:`, `build:`, `test:`, `style:`, `refactor:`
+
+Si aucun commit éligible (`feat:`, `fix:`, `perf:` ou breaking change) n'est présent depuis le dernier tag,
+le job `detect` renvoie `version=skipped` et l'ensemble des gates CD et de la publication sont ignorés.
+
 
 ## ⚠️ Comportement `v0.x`
 
@@ -47,8 +57,9 @@ Une alerte est émise dans le check `ci-traceability` si la PR déclare un bump 
 
 ## 🔒 Protection
 
-Les tags sont protégés par un Tag Ruleset (création/modification/suppression bloquées pour les humains).  
-Seul le bot de release (GitHub App) peut pousser des tags, garantissant :
+Les tags sont protégés par un Tag Ruleset : la **modification et la suppression sont bloquées**
+(la création reste autorisée pour permettre au workflow de release de publier `vX.Y.Z`).  
+Cela garantit :
 
 - Traçabilité : chaque tag correspond à un run de release
 - Immuabilité : pas de re-tag ou de modification d'un tag publié
