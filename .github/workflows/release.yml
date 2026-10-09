@@ -265,7 +265,7 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${{ github.workspace }}:/workspace" \
-            aquasecurity/trivy:latest \
+            ghcr.io/aquasecurity/trivy:latest \
             image \
             ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} \
             --severity CRITICAL \

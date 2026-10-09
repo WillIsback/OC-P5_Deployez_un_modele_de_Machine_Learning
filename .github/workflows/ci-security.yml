@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
-            aquasecurity/trivy:latest \
+            ghcr.io/aquasecurity/trivy:latest \
             fs /workspace \
             --severity HIGH,CRITICAL \
             --skip-dirs /workspace/.venv \
@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
-            gitleaks/gitleaks:latest \
+            ghcr.io/gitleaks/gitleaks:latest \
             detect \
             --source /workspace \
             --config /workspace/.gitleaks.toml \
@@ -173,7 +173,7 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${{ github.workspace }}:/workspace" \
-            aquasecurity/trivy:latest \
+            ghcr.io/aquasecurity/trivy:latest \
             config /workspace \
             --severity HIGH,CRITICAL \
             --format sarif \
