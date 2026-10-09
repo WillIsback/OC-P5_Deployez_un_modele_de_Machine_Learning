@@ -19,7 +19,8 @@ from catboost import CatBoostRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.model_service import CAT_FEATURES, FEATURE_COLUMNS, MODEL_PATH
+import app.core.model_service as model_service
+from app.core.model_service import CAT_FEATURES, FEATURE_COLUMNS
 
 ROWS = 2000
 rng = np.random.default_rng(42)
@@ -78,7 +79,7 @@ model.fit(X, y_log, cat_features=CAT_FEATURES)
 
 import os
 
-os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-model.save_model(MODEL_PATH)
-print(f"Demo model saved to {MODEL_PATH}")
+os.makedirs(os.path.dirname(model_service.MODEL_PATH), exist_ok=True)
+model.save_model(model_service.MODEL_PATH)
+print(f"Demo model saved to {model_service.MODEL_PATH}")
 print(f"Trained on {len(df)} rows, log1p target, cat_features={CAT_FEATURES}.")
