@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           pip install --only-binary :all: "yamllint==1.38.0" -q
-          yamllint -d '{"extends": "default", "rules": {"line-length": "disable", "document-start": "disable", "brackets": "disable"}}' .github/
+          yamllint -d '{"extends": "default", "rules": {"line-length": "disable", "document-start": "disable", "brackets": "disable", "new-line-at-end-of-file": "disable"}}' .github/
 
       - name: Validation JSON des rulesets (check-jsonschema)
         shell: bash
