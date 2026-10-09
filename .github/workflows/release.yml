@@ -374,6 +374,21 @@ jobs:
 
           cat changelog-tmp.md
 
+      - name: Push du tag vN
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.detect.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+            echo "ℹ️  Tag $VERSION déjà présent, rien à faire."
+          else
+            git tag -a "$VERSION" -m "Release $VERSION"
+            git push origin "$VERSION"
+            echo "✅ Tag $VERSION poussé"
+          fi
+
       - name: Créer la GitHub Release avec gh CLI
         id: create_release
         shell: bash
@@ -383,23 +398,19 @@ jobs:
           set -euo pipefail
           VERSION="${{ needs.detect.outputs.version }}"
           echo "Création de la release $VERSION..."
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --notes-file changelog-tmp.md \
-            --target "${{ github.sha }}" \
-            --latest
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "ℹ️  Release $VERSION déjà existante, mise à jour des notes."
+            gh release edit "$VERSION" \
+              --title "$VERSION" \
+              --notes-file changelog-tmp.md \
+              --latest
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --notes-file changelog-tmp.md \
+              --latest
+          fi
           echo "✅ Release $VERSION créée"
-
-      - name: Push du tag vN (bypass app nécessaire)
-        shell: bash
-        run: |
-          set -euo pipefail
-          VERSION="${{ needs.detect.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION" -m "Release $VERSION"
-          git push origin "$VERSION"
-          echo "✅ Tag $VERSION poussé"
 
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

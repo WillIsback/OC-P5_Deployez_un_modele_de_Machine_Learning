@@ -17,12 +17,6 @@
   ],
   "rules": [
     {
-      "type": "creation",
-      "parameters": {
-        "enabled": true
-      }
-    },
-    {
       "type": "deletion",
       "parameters": {
         "enabled": true
@@ -33,20 +27,6 @@
       "parameters": {
         "enabled": true,
         "update_allows_fetch_and_merge": false
-      }
-    },
-    {
-      "type": "require_ci",
-      "parameters": {
-        "enabled": false
-      }
-    },
-    {
-      "type": "tag_name_pattern",
-      "parameters": {
-        "name": "Format semver vX.Y.Z",
-        "pattern": "^v\\d+\\.\\d+\\.\\d+$",
-        "matching": "regex"
       }
     }
   ]
