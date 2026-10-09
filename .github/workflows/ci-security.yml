@@ -122,8 +122,19 @@ jobs:
             echo "🔍 Fuite(s) détectée(s). Voir le rapport SARIF."
           fi
 
+      - name: Vérifier le rapport Gitleaks
+        id: gitleaks-report
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "${{ github.workspace }}/gitleaks.sarif" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload SARIF Gitleaks
-        if: always()
+        if: always() && steps.gitleaks-report.outputs.found == 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
