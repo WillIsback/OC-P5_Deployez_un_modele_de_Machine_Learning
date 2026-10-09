@@ -67,8 +67,9 @@ jobs:
           import xml.etree.ElementTree as ET
           import sys
           tree = ET.parse("coverage.xml")
+          # Dans un rapport Cobertura, l'élément racine est <coverage> lui-même.
           root = tree.getroot()
-          total = float(root.find(".//coverage").attrib["line-rate"]) * 100
+          total = float(root.attrib["line-rate"]) * 100
           threshold = 70.0
           if total < threshold:
               print(f"❌ Couverture globale : {total:.1f}% — seuil minimal : {threshold}%")
