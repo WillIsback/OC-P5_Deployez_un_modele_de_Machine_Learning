@@ -79,7 +79,12 @@ jobs:
           format: json
 
       - name: Lint des workflows GitHub (actionlint)
-        uses: rhysd/actionlint-action@v1
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Binaire officiel actionlint (script de download du repo rhysd/actionlint)
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
 
       - name: Analyse de sécurité des workflows (zizmor)
         uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
