@@ -255,7 +255,7 @@ jobs:
           tags: ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: mode=max
+          provenance: false
 
       - name: Scan de l'image avec Trivy
         id: scan
