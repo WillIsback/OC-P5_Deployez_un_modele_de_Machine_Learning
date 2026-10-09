@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           # Binaire officiel Gitleaks (évite une image Docker refusée).
-          go install github.com/gitleaks/gitleaks/v8/cmd/gitleaks@latest
+          go install github.com/gitleaks/gitleaks/v8@latest
           GITLEAKS="$(go env GOPATH)/bin/gitleaks"
           "$GITLEAKS" detect \
             --source "${{ github.workspace }}" \
