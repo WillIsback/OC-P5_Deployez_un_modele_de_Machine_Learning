@@ -443,13 +443,6 @@ jobs:
         with:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build-and-push.outputs.digest }}
-          subject-path: Dockerfile
-
-      - name: Attestation SBOM
-        uses: actions/attest-sbom@v2
-        with:
-          subject-path: Dockerfile
-          sbom-path: docker-sbom.spdx.json
 
       - name: Vérification post-release
         shell: bash
