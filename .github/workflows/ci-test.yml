@@ -91,16 +91,13 @@ jobs:
           fi
 
       - name: Dry-run applicatif
-        shell: python
+        shell: bash
         run: |
-          import sys
-          try:
-              from app.main import app
-              print('✅ Application FastAPI chargée correctement (version: ' + str(getattr(app, 'version', 'N/A')) + ')')
-              assert hasattr(app, 'openapi'), "Pas une instance FastAPI valide"
-          except Exception as e:
-              print(f'❌ Échec du chargement de l\'application : {e}')
-              sys.exit(1)
+          set -euo pipefail
+          # Utilise le venv du projet (dépendances + package local `app`),
+          # pas le Python système du runner.
+          .venv/bin/python -c "from app.main import app; assert hasattr(app, 'openapi'); print('OK: app chargee')"
+      # (ancien step "Dry-run applicatif" supprimé — remplacé par la version bash venv ci-dessus)
 
       - name: Dry-run release
         shell: python
