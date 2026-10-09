@@ -102,6 +102,83 @@ uv run ruff format .
 
 ---
 
+## 🔐 Authentification Bearer JWT
+
+Toutes les routes du router `/model` sont protégées par un **Bearer token** (schéma `HTTPBearer`). Obtenez un token via `POST /token` :
+
+```bash
+curl -X POST http://localhost:8000/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=johndoe&password=secret"
+```
+
+Puis utilisez-le sur les routes protégées :
+
+```bash
+curl http://localhost:8000/model/list -H "Authorization: Bearer <TOKEN>"
+```
+
+La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`.
+
+---
+
+## ⚡ API de prédiction (CatBoost — Seattle)
+
+La route `POST /model/predict` prédit la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
+
+Exemple d'appel :
+
+```bash
+curl -X POST http://localhost:8000/model/predict \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"BuildingType":"Commercial","PrimaryPropertyType":"Office","Neighborhood":"Ballard","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
+```
+
+Le modèle est chargé depuis `models/energy_use_catboost.cbm` (chemin surchargeable par `MODEL_PATH`).
+
+**Entraînement réel (pipeline P3 + anti-over-fitting + fine-tune restreint)** :
+
+```bash
+uv run python scripts/train_model_seattle.py chemin/vers/2016_Building_Energy_Benchmarking.csv \
+    --output models/energy_use_catboost.cbm
+```
+
+Ce script réplique fidèlement les filtres `F0`→`F11` du notebook, la transformation `log1p`, les marqueurs de raccordement, puis : découpe train / validation / test, parcourt une grille **restreinte** d'hyper-paramètres avec early stopping et `use_best_model`, pénalise l'écart train/validation (anti over-fitting), ré-entraîne final sur l'entraînement et évalue sur le test en unités réelles (kBtu/an).
+
+**Modèle de démonstration (données synthétiques)** :
+
+```bash
+uv run python scripts/train_model.py
+```
+
+Ce script entraîne un bouchon sur **données synthétiques** pour valider l'API de bout en bout. Utilisez le vrai dataset avec `train_model_seattle.py` pour produire votre modèle de production.
+
+### Suivi d'expérimentation avec MLflow
+
+L'entraînement (`train_model_seattle.py`) journalise automatiquement chaque run dans **MLflow** :
+- **Hyper-paramètres** retenus + métadonnées (target, nb features, split).
+- **Scores CV sur le jeu d'entraînement** : moyenne, écart-type et valeurs par pli (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`).
+- **Évaluation sur le test** : `test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`.
+- **Artefact** du modèle `.cbm`.
+
+Configurable par variables d'environnement :
+```bash
+export MLFLOW_TRACKING_URI="sqlite:///mlflow.db"   # défaut
+export MLFLOW_EXPERIMENT="seattle-energy"           # défaut
+uv run python scripts/train_model_seattle.py chemin/vers/2016_Building_Energy_Benchmarking.csv
+```
+Puis visualiser : `uv run mlflow ui`.
+
+### Tests unitaires du training
+
+```bash
+uv run pytest tests/test_training.py -q        # pipeline, CV, tune, MLflow
+uv run pytest --cov=app tests/                 # ensemble des tests
+```
+
+---
+
 ## 📁 Structure du dépôt
 
 ```

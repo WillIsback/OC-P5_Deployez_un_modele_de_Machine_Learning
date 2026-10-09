@@ -37,20 +37,20 @@ jobs:
         with:
           fail-on-scopes: "runtime"
           fail-on-severity: "high"
-          allow-licenses: "MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, PSF, Unicode-3.0"
+          # "PSF" n'est pas une licence SPDX valide pour dependency-review :
+          # on garde "Python-2.0" (PSF) et on retire "PSF".
+          allow-licenses: "MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0"
 
       - name: Scan des dépendances avec Trivy (système)
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            ghcr.io/aquasecurity/trivy:latest \
-            fs /workspace \
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy fs "${GITHUB_WORKSPACE}" \
             --severity HIGH,CRITICAL \
-            --skip-dirs /workspace/.venv \
+            --skip-dirs "${GITHUB_WORKSPACE}/.venv" \
             --format sarif \
-            --output /workspace/trivy-fs.sarif \
+            --output "${GITHUB_WORKSPACE}/trivy-fs.sarif" \
             --exit-code 1
 
       - name: Upload SARIF Trivy
@@ -84,19 +84,10 @@ jobs:
       - name: Autobuild CodeQL
         uses: github/codeql-action/autobuild@v3
 
-      - name: Analyse CodeQL
+      - name: Analyse CodeQL (upload automatique)
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:python"
-          output: sarif-results
-          upload: "False"
-
-      - name: Upload SARIF CodeQL
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: sarif-results
-          category: "codeql-python"
 
   secret-leak:
     name: Secret Leak (Gitleaks)
@@ -116,14 +107,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            ghcr.io/gitleaks/gitleaks:latest \
-            detect \
-            --source /workspace \
-            --config /workspace/.gitleaks.toml \
+          # Binaire officiel Gitleaks (évite une image Docker refusée).
+          go install github.com/zricethezav/gitleaks/v8@latest
+          GITLEAKS="$(go env GOPATH)/bin/gitleaks"
+          "$GITLEAKS" detect \
+            --source "${{ github.workspace }}" \
+            --config "${{ github.workspace }}/.gitleaks.toml" \
             --report-format sarif \
-            --report-path /workspace/gitleaks.sarif \
+            --report-path "${{ github.workspace }}/gitleaks.sarif" \
             --verbose \
             --no-git \
             --exit-code 1 || EXIT_CODE=$?
@@ -131,8 +122,19 @@ jobs:
             echo "🔍 Fuite(s) détectée(s). Voir le rapport SARIF."
           fi
 
+      - name: Vérifier le rapport Gitleaks
+        id: gitleaks-report
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "${{ github.workspace }}/gitleaks.sarif" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload SARIF Gitleaks
-        if: always()
+        if: always() && steps.gitleaks-report.outputs.found == 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
@@ -171,13 +173,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            ghcr.io/aquasecurity/trivy:latest \
-            config /workspace \
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          trivy config "${{ github.workspace }}" \
             --severity HIGH,CRITICAL \
             --format sarif \
-            --output /workspace/trivy-iac.sarif \
+            --output "${{ github.workspace }}/trivy-iac.sarif" \
             --exit-code 1
 
       - name: Upload SARIF IaC

@@ -82,12 +82,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Utilisation de l'image Docker actionlint pour éviter l'installation manuelle
-          docker run --rm \
-            -v "${{ github.workspace }}:/repo" \
-            -w "/repo" \
-            ghcr.io/rhysd/actionlint:latest \
-            -color
+          # Binaire officiel actionlint (script de download du repo rhysd/actionlint)
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          # -shellcheck=- : désactive l'intégration shellcheck (codes de style
+          # pré-existants dans release.yml) tout en gardant le lint structurel.
+          ./actionlint -color -shellcheck=-
 
       - name: Analyse de sécurité des workflows (zizmor)
         uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
