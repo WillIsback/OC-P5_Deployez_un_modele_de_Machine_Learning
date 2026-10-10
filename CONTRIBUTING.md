@@ -66,7 +66,7 @@ Format complet : `^(feat|fix|refactor|docs|chore|hotfix|release)/[a-z0-9._-]+$`
   - `ci-security`
   - `ci-traceability`
 - En complément, une **revue de code IA non bloquante** est postée sur la PR par le workflow `ai-code-review` (déclenché après `ci-test`) via l'action [`WillIsback/code-review`](https://github.com/WillIsback/code-review).
-- Une revue de code est requise (1 approveur minimum).
+- Projet solo : la règle de revue est désactivée (`required_approving_review_count: 0`) — une PR peut être mergée par son auteur, sans bypass administrateur.
 - **Merge en squash uniquement (R6)** — l'historique de `main` est linéaire.
 
 ### 4. Après le merge
