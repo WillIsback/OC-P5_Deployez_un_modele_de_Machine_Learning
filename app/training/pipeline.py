@@ -41,7 +41,13 @@ class TrainPipeline:
     ) -> None:
         if df_raw is None and csv_path is None:
             raise ValueError("Fournir df_raw ou csv_path.")
-        self.df_raw = df_raw if df_raw is not None else pd.read_csv(csv_path)
+        if df_raw is not None:
+            self.df_raw = df_raw
+        else:
+            csv_path = Path(csv_path)
+            if not csv_path.exists():
+                raise FileNotFoundError(f"Dataset introuvable : {csv_path}")
+            self.df_raw = pd.read_csv(csv_path)
         self.output_dir = Path(output_dir)
         self.test_size = test_size
         self.seed = seed
@@ -50,19 +56,31 @@ class TrainPipeline:
         self.mlflow_experiment = mlflow_experiment
         # état rempli par les étapes
         self.df_clean: pd.DataFrame | None = None
-        self.idx_train = self.idx_test = None
-        self.X_train = self.X_test = None
-        self.Y_train = self.Y_test = None
+        self.idx_train: pd.Index | None = None
+        self.idx_test: pd.Index | None = None
+        self.X_train: pd.DataFrame | None = None
+        self.X_test: pd.DataFrame | None = None
+        self.Y_train: pd.DataFrame | None = None
+        self.Y_test: pd.DataFrame | None = None
         self.cv_results: dict[str, list] = {}
         self.pre_tuned_grid: dict[str, dict] = {}
         self.best_params: dict[str, dict] = {}
         self.models: dict[str, CatBoostRegressor] = {}
         self.metrics: dict = {}
 
+    def _require_split(self) -> None:
+        """Garde commune : vérifie que split() a bien préparé l'état."""
+        if self.df_clean is None or self.idx_train is None:
+            raise RuntimeError("Appelez split() avant cette étape.")
+
     @timed("split")
     def split(self) -> TrainPipeline:
         """Nettoyage puis découpe train/test (les indices bruts sont conservés)."""
         self.df_clean = dp.build_clean(self.df_raw)
+        if len(self.df_clean) < 2:
+            raise ValueError(
+                f"Jeu nettoyé trop petit pour un split : {len(self.df_clean)} lignes"
+            )
         idx = self.df_clean.index
         self.idx_train, self.idx_test = train_test_split(
             idx, test_size=self.test_size, random_state=self.seed
@@ -72,7 +90,9 @@ class TrainPipeline:
 
     @timed("feature_engineering")
     def feature_engineering(self) -> TrainPipeline:
-        """Catégorielles->str + flags, ajusté sur train et appliqué au test."""
+        """Encodage stateless (catégorielles en str + flags), appliqué
+        identiquement à train et test."""
+        self._require_split()
         features = [
             c for c in FEATURE_COLUMNS if c not in ("Has_NaturalGas", "Has_Steam")
         ]

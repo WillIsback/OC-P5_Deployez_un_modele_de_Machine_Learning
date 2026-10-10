@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.training import data_processing as dp
+from app.training.pipeline import TrainPipeline
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -177,9 +178,6 @@ def test_ensure_dataset_download_failure_cleans_tmp(tmp_path):
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     assert not tmp.exists()
     assert not dest.exists()
-
-
-from app.training.pipeline import TrainPipeline
 
 
 def test_pipeline_split_then_feature_engineering():
