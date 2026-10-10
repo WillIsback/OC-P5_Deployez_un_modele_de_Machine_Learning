@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "catboost>=1.2.10",
     "fastapi[standard]>=0.143.0",
-    "imblearn>=0.0",
     "mlflow>=3.17.0",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
@@ -16,11 +15,9 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "ruff>=0.16.10",
     "scikit-learn>=1.9.1",
-    "seaborn>=0.13.2",
     "sqlmodel>=0.0.48",
     "structured-data-models",
     "torch",
-    "xgboost>=3.4.1",
 ]
 
 [dependency-groups]
@@ -40,3 +37,10 @@ omit = [
 
 [tool.uv.sources]
 structured-data-models = { git = "https://github.com/NVIDIA/structured-data-models.git" }
+# Serving CPU-only : éviter les wheels CUDA + paquets nvidia-* (image bien plus légère)
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
