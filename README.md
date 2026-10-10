@@ -135,38 +135,35 @@ curl -X POST http://localhost:8000/model/predict \
   -d '{"BuildingType":"Commercial","PrimaryPropertyType":"Office","Neighborhood":"Ballard","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
 ```
 
-Le modèle est chargé depuis `models/energy_use_catboost.cbm` (chemin surchargeable par `MODEL_PATH`).
+Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` (chemins surchargeables par `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS`).
 
-**Entraînement réel (pipeline P3 + anti-over-fitting + fine-tune restreint)** :
-
-```bash
-uv run python scripts/train_model_seattle.py chemin/vers/2016_Building_Energy_Benchmarking.csv \
-    --output models/energy_use_catboost.cbm
-```
-
-Ce script réplique fidèlement les filtres `F0`→`F11` du notebook, la transformation `log1p`, les marqueurs de raccordement, puis : découpe train / validation / test, parcourt une grille **restreinte** d'hyper-paramètres avec early stopping et `use_best_model`, pénalise l'écart train/validation (anti over-fitting), ré-entraîne final sur l'entraînement et évalue sur le test en unités réelles (kBtu/an).
-
-**Modèle de démonstration (données synthétiques)** :
+**Entraînement réel (pipeline multi-cible + MLflow)** :
 
 ```bash
-uv run python scripts/train_model.py
+# Sur un clone neuf, télécharge le dataset puis entraîne
+uv run python -m app.training --download
+
+# Sinon, dataset déjà présent
+uv run python -m app.training
 ```
 
-Ce script entraîne un bouchon sur **données synthétiques** pour valider l'API de bout en bout. Utilisez le vrai dataset avec `train_model_seattle.py` pour produire votre modèle de production.
+Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
+`TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
+logue les runs MLflow (`uv run mlflow ui`). Sorties : `models/<cible>.cbm` et
+`models/scores.json`.
 
 ### Suivi d'expérimentation avec MLflow
 
-L'entraînement (`train_model_seattle.py`) journalise automatiquement chaque run dans **MLflow** :
-- **Hyper-paramètres** retenus + métadonnées (target, nb features, split).
-- **Scores CV sur le jeu d'entraînement** : moyenne, écart-type et valeurs par pli (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`).
-- **Évaluation sur le test** : `test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`.
-- **Artefact** du modèle `.cbm`.
+L'entraînement (`app.training`) journalise automatiquement chaque run dans **MLflow** :
+- **Run parent `p5-multitarget`** : paramètres `test_size`, `seed`, `cv_splits` ; artefacts `scores.json` / `scores.csv`.
+- **Run imbriqué par cible `catboost-<cible>`** : meilleurs hyper-paramètres, scores CV sur l'entraînement (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`), évaluation sur le test (`test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`) et artefact du modèle `.cbm`.
+- **Run imbriqué par cible `kumo-<cible>`** : évaluation Kumo-Tabular en zero-shot (`test_*`).
 
 Configurable par variables d'environnement :
 ```bash
 export MLFLOW_TRACKING_URI="sqlite:///mlflow.db"   # défaut
 export MLFLOW_EXPERIMENT="seattle-energy"           # défaut
-uv run python scripts/train_model_seattle.py chemin/vers/2016_Building_Energy_Benchmarking.csv
+uv run python -m app.training
 ```
 Puis visualiser : `uv run mlflow ui`.
 

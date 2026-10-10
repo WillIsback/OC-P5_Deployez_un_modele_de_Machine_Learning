@@ -1,4 +1,4 @@
-"""Tests unitaires du pipeline d'entraînement CatBoost + logging MLflow."""
+"""Tests du pipeline d'entraînement multi-cible (app.training)."""
 
 import sys
 from pathlib import Path
@@ -6,11 +6,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from mlflow.tracking import MlflowClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts import train_model_seattle as train
+from app.training import data_processing as dp
+from app.training.pipeline import (
+    COARSE_GRID,
+    MAX_TREES_BUDGET,
+    TrainPipeline,
+    _candidate_sort_key,
+)
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -18,169 +23,376 @@ def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     n_multi = n // 8
     n_other = n - n_multi
-    bt = ["Multifamily (4+ units)"] * n_multi + list(
-        rng.choice(["Commercial", "Office", "Industrial", "Warehouse"], n_other)
-    )
-    df = pd.DataFrame(
+    nonres_types = ["NonResidential", "Commercial", "Mixed Use"]
+    building_type = (nonres_types * n_other)[:n_other] + [
+        "Multifamily LR (1-4)"
+    ] * n_multi
+    outlier = ["None"] * n
+    outlier[2] = "High outlier"
+    outlier[3] = "Low outlier"
+    compliance = ["Compliant"] * n
+    compliance[4] = "NonCompliant"
+    default_data = [False] * n
+    default_data[5] = True
+    return pd.DataFrame(
         {
-            "BuildingType": bt,
+            "BuildingType": building_type,
             "PrimaryPropertyType": rng.choice(
-                ["Office", "Retail", "Warehouse/Storage", "Service"], n
+                ["Office", "Retail Store", "Warehouse"], n
             ),
-            "Neighborhood": rng.choice(["ballard", "Downtown ", " Capitol Hill"], n),
-            "Latitude": rng.uniform(47.48, 47.72, n),
+            "Neighborhood": rng.choice(
+                ["ballard", " Downtown ", "FREMONT", "Capitol Hill"], n
+            ),
+            "Latitude": rng.uniform(47.5, 47.7, n),
             "Longitude": rng.uniform(-122.4, -122.25, n),
             "YearBuilt": rng.integers(1930, 2020, n),
-            "NumberofBuildings": rng.integers(1, 3, n).astype(float),
+            "NumberofBuildings": rng.integers(0, 3, n).astype(float),
             "NumberofFloors": rng.integers(1, 8, n),
             "PropertyGFAParking": rng.integers(0, 20000, n),
             "PropertyGFABuilding(s)": rng.integers(500, 40000, n),
-            "LargestPropertyUseType": rng.choice(["Office", "Warehouse", "Retail"], n),
+            "LargestPropertyUseType": rng.choice(["Office", "Retail"], n),
             "SecondLargestPropertyUseType": rng.choice(["Retail", "Service"], n),
             "SecondLargestPropertyUseTypeGFA": rng.uniform(0, 12000, n),
             "ThirdLargestPropertyUseType": rng.choice(["Parking", "Service"], n),
             "ThirdLargestPropertyUseTypeGFA": rng.uniform(0, 8000, n),
-            "Outlier": [""] * n,
-            "ComplianceStatus": ["Compliant"] * n,
-            "DefaultData": [False] * n,
+            "SiteEnergyUse(kBtu)": rng.uniform(1000, 500000, n),
+            "TotalGHGEmissions": rng.uniform(1, 500, n),
+            "NaturalGas(kBtu)": rng.uniform(0, 1000, n),
+            "SteamUse(kBtu)": rng.uniform(0, 1000, n),
+            "PropertyGFATotal": rng.integers(500, 40000, n),
+            "LargestPropertyUseTypeGFA": rng.integers(0, 40000, n),
+            "OSEBuildingID": np.arange(n),
+            "PropertyName": [f"b{i}" for i in range(n)],
+            "Address": [f"{i} st" for i in range(n)],
+            "TaxParcelIdentificationNumber": [f"t{i}" for i in range(n)],
+            "ZipCode": rng.choice(["98101", "98102", "98103"], n),
+            "CouncilDistrictCode": rng.integers(1, 8, n),
+            "ListOfAllPropertyUseTypes": ["Office"] * n,
+            "ComplianceStatus": compliance,
+            "DefaultData": default_data,
+            "Outlier": outlier,
+            "YearsENERGYSTARCertified": [np.nan] * n,
+            "ENERGYSTARScore": rng.uniform(0, 100, n),
+            "GHGEmissionsIntensity": rng.uniform(0, 10, n),
         }
     )
-    gfa = df["PropertyGFABuilding(s)"]
-    target = (3.0 * gfa + 5000 * df["NumberofFloors"] + 30000).clip(lower=1)
-    # 10 % de cibles nulles -> doivent être filtrées par F10
-    zero_idx = rng.choice(n, size=n // 10, replace=False)
-    target.iloc[zero_idx] = 0.0
-    df["SiteEnergyUse(kBtu)"] = target
-    df["NaturalGas(kBtu)"] = np.where(
-        rng.random(n) < 0.6, rng.uniform(0, 80000, n), 0
-    ).round(0)
-    df["SteamUse(kBtu)"] = np.where(
-        rng.random(n) < 0.2, rng.uniform(0, 150000, n), 0
-    ).round(0)
-    return df
 
 
-# --------------------------------------------------------------------------- #
-# Pipeline de nettoyage / préparation
-# --------------------------------------------------------------------------- #
-def test_build_clean_excludes_multifamily():
-    clean = train.build_clean(make_synth())
-    assert "BuildingType" in clean.columns
-    assert not clean["BuildingType"].str.contains("Multifamily").any()
+def test_build_clean_drops_multifamily_and_leakage():
+    clean = dp.build_clean(make_synth())
+    assert not clean["BuildingType"].str.startswith("Multifamily").any()
+    assert "GHGEmissionsIntensity" not in clean.columns
+    assert "SiteEnergyUse(kBtu)" in clean.columns
+    assert "TotalGHGEmissions" in clean.columns
 
 
-def test_build_clean_keeps_positive_target_only():
-    clean = train.build_clean(make_synth())
+def test_build_clean_keeps_positive_targets_only():
+    df = make_synth()
+    df.loc[0, "SiteEnergyUse(kBtu)"] = 0
+    df.loc[1, "TotalGHGEmissions"] = 0
+    clean = dp.build_clean(df)
     assert (clean["SiteEnergyUse(kBtu)"] > 0).all()
+    assert (clean["TotalGHGEmissions"] > 0).all()
 
 
-def test_build_clean_drops_pii_and_leakage():
-    clean = train.build_clean(make_synth())
-    for col in train.PII_COLUMNS + train.DATA_LEAKAGE_COLUMNS:
-        assert col not in clean.columns
+def test_prepare_dataset_shapes_and_targets():
+    X, Y, df_clean = dp.prepare_dataset(make_synth(120))
+    assert list(X.columns) == dp.FEATURE_COLUMNS
+    assert set(Y.columns) == {"SiteEnergyUse(kBtu)", "TotalGHGEmissions"}
+    assert len(X) == len(Y) == len(df_clean)
+    for col in dp.CAT_FEATURES:
+        assert pd.api.types.is_string_dtype(X[col])
+
+
+def test_build_flags_from_raw_columns():
+    df = make_synth(40)
+    df["NaturalGas(kBtu)"] = 0.0
+    df["SteamUse(kBtu)"] = 0.0
+    df.loc[df.index[0], "NaturalGas(kBtu)"] = 500.0
+    clean = dp.build_clean(df)
+    flags = dp.build_flags(df, clean)
+    assert set(flags.columns) == {"Has_NaturalGas", "Has_Steam"}
+    assert flags["Has_NaturalGas"].sum() >= 1
+    assert flags["Has_Steam"].sum() == 0
+
+
+def test_build_clean_removes_outliers_and_drops_column():
+    clean = dp.build_clean(make_synth(80))
+    assert "Outlier" not in clean.columns
+    assert 2 not in clean.index
+    assert 3 not in clean.index
+
+
+def test_build_clean_removes_non_compliant_rows():
+    clean = dp.build_clean(make_synth(80))
+    assert "ComplianceStatus" not in clean.columns
+    assert "DefaultData" not in clean.columns
+    assert 4 not in clean.index
 
 
 def test_build_clean_normalizes_neighborhood():
-    clean = train.build_clean(make_synth())
+    clean = dp.build_clean(make_synth(80))
     assert (
-        clean["Neighborhood"] == clean["Neighborhood"].str.strip().str.upper()
+        clean["Neighborhood"] == clean["Neighborhood"].str.upper().str.strip()
     ).all()
+    assert "Downtown" not in clean["Neighborhood"].values
 
 
-def test_build_flags():
-    df = make_synth()
-    clean = train.build_clean(df)
-    flags = train.build_flags(df, clean)
-    assert set(flags.columns) == {"Has_NaturalGas", "Has_Steam"}
-    assert flags.index.equals(clean.index)
-    assert set(flags["Has_NaturalGas"].unique()).issubset({0, 1})
-    assert set(flags["Has_Steam"].unique()).issubset({0, 1})
+def test_build_clean_sets_min_one_building():
+    df = make_synth(80)
+    df.loc[0, "NumberofBuildings"] = 0
+    clean = dp.build_clean(df)
+    assert 0 in clean.index
+    assert clean.loc[0, "NumberofBuildings"] == 1
 
 
-def test_prepare_catboost_types_and_flags():
-    df = make_synth()
-    clean = train.build_clean(df)
-    X_features = clean.drop(columns=["SiteEnergyUse(kBtu)"], errors="ignore")
-    flags = train.build_flags(df, clean)
-    X = train.prepare_catboost(X_features, flags)
-    for col in train.CAT_FEATURES:
-        assert pd.api.types.is_string_dtype(X[col])  # catégorielles forcées en str
-    assert {"Has_NaturalGas", "Has_Steam"}.issubset(X.columns)
+def test_build_clean_drops_pii_columns():
+    clean = dp.build_clean(make_synth(80))
+    for col in dp.PII_COLUMNS:
+        assert col not in clean.columns
 
 
-def test_prepare_dataset_layout():
-    df = make_synth(60)
-    X, y_log, clean = train.prepare_dataset(df)
-    assert list(X.columns) == train.FEATURE_COLUMNS
-    assert (y_log > 0).all()
-    expected = np.log1p(clean["SiteEnergyUse(kBtu)"])
-    np.testing.assert_allclose(y_log.values, expected.values)
+def test_ensure_dataset_returns_existing_without_download(tmp_path):
+    dest = tmp_path / "data.csv"
+    dest.write_text("a,b\n1,2\n")
+    result = dp.ensure_dataset(dest, url="file:///nonexistent/bogus.csv")
+    assert result == dest
+    assert dest.read_text() == "a,b\n1,2\n"
 
 
-# --------------------------------------------------------------------------- #
-# Métriques
-# --------------------------------------------------------------------------- #
-def test_mlflow_key_sanitizes_percent():
-    assert train._mlflow_key("MedAPE_%") == "MedAPE_pct"
-    assert train._mlflow_key("R2") == "R2"
+def test_ensure_dataset_missing_without_download_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        dp.ensure_dataset(tmp_path / "missing.csv")
 
 
-def test_metrics_reelles():
-    y_true = np.array([100.0, 200.0, 100.0])
-    y_pred = np.array([110.0, 200.0, 100.0])
-    m = train.metrics_reelles(y_true, y_pred)
-    assert m["MAE"] == pytest.approx(10 / 3)
-    assert m["MedAE"] == 0.0
+def test_ensure_dataset_downloads_from_file_url(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text("col\n1\n")
+    dest = tmp_path / "nested" / "data.csv"
+    result = dp.ensure_dataset(dest, url=source.as_uri(), download=True)
+    assert result == dest
+    assert dest.exists()
+    assert dest.read_text() == source.read_text()
 
 
-# --------------------------------------------------------------------------- #
-# Entraînement : fit, CV, tune
-# --------------------------------------------------------------------------- #
-def test_train_with_early_stopping():
-    df = make_synth(60)
-    X, y_log, _ = train.prepare_dataset(df)
-    params = {"iterations": 50, "learning_rate": 0.1, "depth": 4, "l2_leaf_reg": 3.0}
-    model = train.train_with_early_stopping(
-        X, y_log, X.iloc[:20], y_log.iloc[:20], params, train.CAT_FEATURES
+def test_ensure_dataset_download_failure_cleans_tmp(tmp_path):
+    source = tmp_path / "does_not_exist.csv"
+    dest = tmp_path / "nested" / "data.csv"
+    url = source.as_uri()
+    with pytest.raises(RuntimeError):
+        dp.ensure_dataset(dest, url=url, download=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    assert not tmp.exists()
+    assert not dest.exists()
+
+
+def test_pipeline_split_then_feature_engineering():
+    pipe = TrainPipeline(df_raw=make_synth(200), seed=42, test_size=0.25)
+    pipe.split()
+    pipe.feature_engineering()
+    assert len(pipe.idx_train) + len(pipe.idx_test) == len(pipe.df_clean)
+    assert len(pipe.X_train) == len(pipe.Y_train) == len(pipe.idx_train)
+    assert list(pipe.X_train.columns) == dp.FEATURE_COLUMNS
+    assert set(pipe.Y_train.columns) == {"SiteEnergyUse(kBtu)", "TotalGHGEmissions"}
+    # pas de fuite : le test n'a pas été vu à l'ajustement
+    assert set(pipe.idx_train).isdisjoint(set(pipe.idx_test))
+
+
+def test_pipeline_cross_validate_and_pre_tune_restrict_grid():
+    pipe = TrainPipeline(df_raw=make_synth(160), seed=42, cv_splits=3)
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    for target in dp.TARGETS:
+        assert target in pipe.cv_results
+        assert pipe.cv_results[target]  # au moins une config évaluée
+        assert len(pipe.cv_results[target][0]["per_fold"]) == pipe.cv_splits
+        assert set(pipe.cv_results[target][0]["mean"]) == {
+            "R2",
+            "MAE",
+            "MedAE",
+            "MedAPE_%",
+        }
+        grid = pipe.pre_tuned_grid[target]
+        # grille restreinte : pas plus de 2 valeurs par axe
+        assert all(len(v) <= 2 for v in grid.values())
+        # le budget "overkill" doit pouvoir mordre : cap > seuil souple
+        assert grid["iterations"][0] == COARSE_GRID["iterations"][0]
+        assert MAX_TREES_BUDGET < grid["iterations"][0]
+
+
+def test_pipeline_fine_tune_penalizes_overkill_and_trains_final(tmp_path):
+    pipe = TrainPipeline(
+        df_raw=make_synth(160), seed=42, cv_splits=3, output_dir=tmp_path
     )
-    assert model.tree_count_ > 0
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    pipe.fine_tune().train_final()
+    for target in dp.TARGETS:
+        assert "depth" in pipe.best_params[target]
+        assert "overfit_gap" in pipe.best_params[target]
+        cbm = tmp_path / f"{target}.cbm"
+        assert cbm.exists()
+        assert pipe.models[target] is not None
 
 
-def test_cross_validate_energy():
-    df = make_synth(90)
-    X, y_log, _ = train.prepare_dataset(df)
-    params = {"iterations": 40, "learning_rate": 0.1, "depth": 4, "l2_leaf_reg": 3.0}
-    cv = train.cross_validate_energy(X, y_log, params, train.CAT_FEATURES, n_splits=2)
-    assert set(cv) == {"mean", "std", "per_fold"}
-    assert len(cv["per_fold"]) == 2
-    assert cv["mean"]["R2"] > 0
-    assert cv["mean"]["MedAPE_%"] > 0
+def _cand(medape, r2, gap, overkill, n_trees, depth):
+    return {
+        "MedAPE_val": medape,
+        "R2_val": r2,
+        "overfit_gap": gap,
+        "overkill": overkill,
+        "n_trees": n_trees,
+        "depth": depth,
+    }
 
 
-def test_tune_restricted_grid():
-    df = make_synth(70)
-    X, y_log, _ = train.prepare_dataset(df)
-    grid = {"iterations": [40], "learning_rate": [0.1, 0.2], "depth": [4]}
-    best_params, best = train.tune(X, y_log, train.CAT_FEATURES, grid=grid)
-    assert set(best_params) == set(grid)
-    assert {"train", "val"}.issubset(best)
+def test_candidate_sort_key_prefers_metrics_then_complexity():
+    base = _cand(10.0, 0.8, 0.1, 0, 500, 5)
+    lower_medape = _cand(5.0, 0.8, 0.1, 0, 500, 5)
+    higher_r2 = _cand(10.0, 0.9, 0.1, 0, 500, 5)
+    no_overkill = _cand(10.0, 0.8, 0.1, 0, 500, 5)
+    overkill = _cand(10.0, 0.8, 0.1, 1, 500, 5)
+    fewer_trees = _cand(10.0, 0.8, 0.1, 0, 100, 5)
+
+    assert _candidate_sort_key(lower_medape) < _candidate_sort_key(base)
+    assert _candidate_sort_key(higher_r2) < _candidate_sort_key(base)
+    assert _candidate_sort_key(no_overkill) < _candidate_sort_key(overkill)
+    assert _candidate_sort_key(fewer_trees) < _candidate_sort_key(base)
 
 
-# --------------------------------------------------------------------------- #
-# MLflow
-# --------------------------------------------------------------------------- #
-def test_mlflow_log_metrics(tmp_path):
-    import mlflow
+def test_candidate_sort_key_metric_priority_beats_overkill():
+    # Meilleur MedAPE gagne même s'il est overkill (la métrique prime)
+    better_medape_overkill = _cand(5.0, 0.5, -0.1, 1, 1500, 6)
+    worse_medape_clean = _cand(10.0, 0.9, 0.0, 0, 400, 4)
+    assert (
+        min([worse_medape_clean, better_medape_overkill], key=_candidate_sort_key)
+        is better_medape_overkill
+    )
 
-    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
-    mlflow.set_tracking_uri(uri)
-    mlflow.set_experiment("unit-test")
-    with mlflow.start_run():
-        train.log_mlflow_metrics("cv_train", {"MedAPE_%": 3.2, "R2": 0.96})
-        mlflow.log_metric("test_R2", 0.97)
-    exp = MlflowClient(uri).get_experiment_by_name("unit-test")
-    run = MlflowClient(uri).search_runs(experiment_ids=[exp.experiment_id])[0]
-    metrics = run.data.metrics
-    assert metrics["cv_train_MedAPE_pct"] == pytest.approx(3.2)
-    assert metrics["cv_train_R2"] == pytest.approx(0.96)
-    assert metrics["test_R2"] == pytest.approx(0.97)
+    # MedAPE prime sur R2 (et sur overkill/complexité)
+    low_medape_ugly = _cand(5.0, 0.1, 0.0, 1, 900, 6)
+    high_medape_pretty = _cand(9.0, 0.99, 0.0, 0, 200, 3)
+    assert (
+        min([high_medape_pretty, low_medape_ugly], key=_candidate_sort_key)
+        is low_medape_ugly
+    )
+
+    # R2 prime sur overkill/complexité à MedAPE égal
+    better_r2_overkill = _cand(7.0, 0.9, 0.0, 1, 1500, 8)
+    worse_r2_clean = _cand(7.0, 0.2, 0.0, 0, 100, 3)
+    assert (
+        min([worse_r2_clean, better_r2_overkill], key=_candidate_sort_key)
+        is better_r2_overkill
+    )
+
+
+def test_pipeline_evaluate_builds_grouped_scores(tmp_path):
+    pipe = TrainPipeline(
+        df_raw=make_synth(160), seed=42, cv_splits=3, output_dir=tmp_path
+    )
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    pipe.fine_tune().train_final()
+    # Kumo remplacé par un prédicteur factice (pas de chargement lourd en test)
+    pipe.evaluate(kumo_predictor=lambda X, target: np.full(len(X), 42.0))
+    assert set(pipe.metrics) == set(dp.TARGETS)
+    for target, block in pipe.metrics.items():
+        assert block["unit"] == dp.TARGETS[target]["unit"]
+        assert set(block["models"]) == {"catboost", "kumo"}
+        assert set(block["models"]["catboost"]) == {"R2", "MAE", "MedAE", "MedAPE_pct"}
+
+
+def test_pipeline_run_logs_mlflow_without_kumo(tmp_path, monkeypatch):
+    # grille réduite pour un run rapide
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(
+        pl,
+        "COARSE_GRID",
+        {
+            "iterations": [60],
+            "learning_rate": [0.1],
+            "depth": [4],
+            "l2_leaf_reg": [3.0],
+        },
+    )
+    tracking = tmp_path / "mlflow.db"
+    tracking_uri = f"sqlite:///{tracking}"
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        seed=42,
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=tracking_uri,
+    )
+    metrics = pipe.run(include_kumo=False)
+    assert set(metrics) == set(dp.TARGETS)
+    assert (tmp_path / "scores.json").exists()
+    assert (tmp_path / "scores.csv").exists()
+
+    from mlflow.tracking import MlflowClient
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+    experiment = client.get_experiment_by_name("seattle-energy")
+    assert experiment is not None
+
+    runs = client.search_runs([experiment.experiment_id])
+    by_name = {r.data.tags.get("mlflow.runName"): r for r in runs}
+    assert "p5-multitarget" in by_name
+    parent = by_name["p5-multitarget"]
+    assert "catboost-energy" in by_name
+    assert "catboost-emissions" in by_name
+
+    # runs catboost imbriqués : parentRunId = run parent
+    for name in ("catboost-energy", "catboost-emissions"):
+        run = by_name[name]
+        assert run.data.tags.get("mlflow.parentRunId") == parent.info.run_id
+        assert any(k.startswith("test_") for k in run.data.metrics)
+        # spec §8 : métriques CV (mean/std) loguées sur le run catboost
+        assert any(k.startswith("cv_train_") for k in run.data.metrics)
+
+    # artefacts modèles listés (fichiers .cbm sur chaque run catboost)
+    cbm_artifacts = set()
+    for name in ("catboost-energy", "catboost-emissions"):
+        cbm_artifacts |= {
+            a.path for a in client.list_artifacts(by_name[name].info.run_id, "models")
+        }
+    assert sum(p.endswith(".cbm") for p in cbm_artifacts) >= len(dp.TARGETS)
+
+    # scores JSON + CSV sur le run parent
+    artifact_paths = {
+        a.path for a in client.list_artifacts(parent.info.run_id, "models")
+    }
+    assert any(p.endswith("scores.json") for p in artifact_paths)
+    assert any(p.endswith("scores.csv") for p in artifact_paths)
+
+
+def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
+    from app.core import kumo_service
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(
+        pl,
+        "COARSE_GRID",
+        {
+            "iterations": [60],
+            "learning_rate": [0.1],
+            "depth": [4],
+            "l2_leaf_reg": [3.0],
+        },
+    )
+
+    def boom(X, target):
+        raise RuntimeError("kumo indisponible")
+
+    monkeypatch.setattr(kumo_service, "predict_batch", boom, raising=False)
+
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        seed=42,
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=tracking_uri,
+    )
+    metrics = pipe.run(include_kumo=True)
+    assert set(metrics) == set(dp.TARGETS)
+    for target in dp.TARGETS:
+        assert set(metrics[target]["models"]) == {"catboost"}

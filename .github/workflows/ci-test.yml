@@ -48,12 +48,12 @@ jobs:
       - name: Synchroniser les dépendances
         run: |
           set -euo pipefail
-          uv sync --frozen --no-cache --no-build --no-install-project
+          uv sync --frozen --no-cache --no-install-project
 
       - name: Tests unitaires avec couverture
         run: |
           set -euo pipefail
-          uv run --frozen --no-build --no-sync pytest \
+          uv run --frozen --no-sync pytest \
             --cov=app \
             --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov \
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --name-only origin/main...HEAD | grep -qE '\.py$'; then
-            uv run --frozen --no-build --no-sync diff-cover coverage.xml \
+            uv run --frozen --no-sync diff-cover coverage.xml \
               --compare-branch origin/main \
               --fail-under=80 \
               --diff-range-notation=... || true

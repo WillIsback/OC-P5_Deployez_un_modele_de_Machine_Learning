@@ -18,6 +18,8 @@ dependencies = [
     "scikit-learn>=1.9.1",
     "seaborn>=0.13.2",
     "sqlmodel>=0.0.48",
+    "structured-data-models",
+    "torch",
     "xgboost>=3.4.1",
 ]
 
@@ -35,3 +37,6 @@ omit = [
     "app/schemas/database.py",
     "app/internal/*",
 ]
+
+[tool.uv.sources]
+structured-data-models = { git = "https://github.com/NVIDIA/structured-data-models.git" }
