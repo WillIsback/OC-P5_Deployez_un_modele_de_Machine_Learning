@@ -255,3 +255,29 @@ def test_candidate_sort_key_prefers_metrics_then_complexity():
     assert _candidate_sort_key(higher_r2) < _candidate_sort_key(base)
     assert _candidate_sort_key(no_overkill) < _candidate_sort_key(overkill)
     assert _candidate_sort_key(fewer_trees) < _candidate_sort_key(base)
+
+
+def test_candidate_sort_key_metric_priority_beats_overkill():
+    # Meilleur MedAPE gagne même s'il est overkill (la métrique prime)
+    better_medape_overkill = _cand(5.0, 0.5, -0.1, 1, 1500, 6)
+    worse_medape_clean = _cand(10.0, 0.9, 0.0, 0, 400, 4)
+    assert (
+        min([worse_medape_clean, better_medape_overkill], key=_candidate_sort_key)
+        is better_medape_overkill
+    )
+
+    # MedAPE prime sur R2 (et sur overkill/complexité)
+    low_medape_ugly = _cand(5.0, 0.1, 0.0, 1, 900, 6)
+    high_medape_pretty = _cand(9.0, 0.99, 0.0, 0, 200, 3)
+    assert (
+        min([high_medape_pretty, low_medape_ugly], key=_candidate_sort_key)
+        is low_medape_ugly
+    )
+
+    # R2 prime sur overkill/complexité à MedAPE égal
+    better_r2_overkill = _cand(7.0, 0.9, 0.0, 1, 1500, 8)
+    worse_r2_clean = _cand(7.0, 0.2, 0.0, 0, 100, 3)
+    assert (
+        min([worse_r2_clean, better_r2_overkill], key=_candidate_sort_key)
+        is better_r2_overkill
+    )
