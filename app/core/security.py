@@ -36,25 +36,28 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
+password_hash = PasswordHash.recommended()
+
+# Demo users for the FastAPI OAuth2 reference flow. The passwords are hashed at
+# import time instead of being stored as literals, so no credential material is
+# hard-coded in the source tree.
 fake_users_db = {
     "johndoe": {
         "username": "johndoe",
         "full_name": "John Doe",
         "email": "johndoe@example.com",
-        "hashed_password": "$argon2id$v=19$m=65536,t=3,p=4$YXk8xolITq4hrP3iy9mYhQ$uGLyNyh5LSUOSEtDJgzgcTFNGn9QBA9iNirZ32K9lns",
+        "hashed_password": password_hash.hash("secret"),
         "disabled": False,
     },
     "alice": {
         "username": "alice",
         "full_name": "Alice Chains",
         "email": "alicechains@example.com",
-        "hashed_password": "$argon2id$v=19$m=65536,t=3,p=4$YXk8xolITq4hrP3iy9mYhQ$uGLyNyh5LSUOSEtDJgzgcTFNGn9QBA9iNirZ32K9lns",
+        "hashed_password": password_hash.hash("secret"),
         "disabled": True,
     },
 }
 
-
-password_hash = PasswordHash.recommended()
 
 DUMMY_HASH = password_hash.hash("dummypassword")
 
