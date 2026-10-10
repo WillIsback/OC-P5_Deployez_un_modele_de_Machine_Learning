@@ -354,7 +354,7 @@ jobs:
       - name: Synchroniser les dépendances
         run: |
           set -euo pipefail
-          uv sync --frozen --no-cache --no-build --no-install-project
+          uv sync --frozen --no-cache --no-install-project
 
       - name: Générer le CHANGELOG
         id: changelog

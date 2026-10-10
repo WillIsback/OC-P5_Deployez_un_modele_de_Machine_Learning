@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock ./
 COPY app/ ./app/
 
 # Install the application dependencies.
-RUN uv sync --frozen --no-cache --no-build --no-install-project \
+RUN uv sync --frozen --no-cache --no-install-project \
     && chown -R appuser:appuser /app
 
 # Healthcheck
