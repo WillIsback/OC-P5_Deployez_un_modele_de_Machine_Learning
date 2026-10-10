@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 from catboost import CatBoostRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -25,16 +26,8 @@ def _train(path, value=1000.0):
     m.save_model(str(path))
 
 
-def test_model_service_loads_per_target(tmp_path, monkeypatch):
-    p_energy = tmp_path / "energy.cbm"
-    p_emiss = tmp_path / "emissions.cbm"
-    _train(p_energy, 1000.0)
-    _train(p_emiss, 50.0)
-    monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(p_energy))
-    monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(p_emiss))
-    model_service._models.clear()
-
-    req = EnergyPredictionRequest(
+def _request() -> EnergyPredictionRequest:
+    return EnergyPredictionRequest(
         BuildingType="Office",
         PrimaryPropertyType="Office",
         Neighborhood="BALLARD",
@@ -53,6 +46,41 @@ def test_model_service_loads_per_target(tmp_path, monkeypatch):
         Has_NaturalGas=True,
         Has_Steam=False,
     )
-    preds = model_service.predict_all(req)
+
+
+def test_model_service_loads_per_target(tmp_path, monkeypatch):
+    p_energy = tmp_path / "energy.cbm"
+    p_emiss = tmp_path / "emissions.cbm"
+    _train(p_energy, 1000.0)
+    _train(p_emiss, 50.0)
+    monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(p_energy))
+    monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(p_emiss))
+    monkeypatch.setattr(model_service, "_models", {})
+
+    preds = model_service.predict_all(_request())
     assert set(preds) == {"energy", "emissions"}
     assert preds["energy"] > 0 and preds["emissions"] > 0
+    assert preds["energy"] > preds["emissions"] * 5
+
+
+def test_load_model_unknown_target_raises():
+    with pytest.raises(KeyError):
+        model_service.load_model("nope")
+
+
+def test_load_model_missing_file_raises(tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        model_service.MODEL_PATHS, "energy", str(tmp_path / "missing.cbm")
+    )
+    monkeypatch.setattr(model_service, "_models", {})
+    with pytest.raises(FileNotFoundError):
+        model_service.load_model("energy")
+
+
+def test_to_dataframe_mapping_and_order():
+    df = model_service._to_dataframe(_request())
+    assert list(df.columns) == FEATURE_COLUMNS
+    assert "PropertyGFABuilding(s)" in df.columns
+    assert "PropertyGFABuilding" not in df.columns
+    for col in CAT_FEATURES:
+        assert pd.api.types.is_string_dtype(df[col])
