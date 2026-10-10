@@ -33,7 +33,7 @@ jobs:
       - name: Calculer le nom d'image (minuscules)
         id: image
         shell: bash
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-base" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -51,6 +51,6 @@ jobs:
           context: .
           file: Dockerfile.base
           push: true
-          tags: ${{ steps.image.outputs.name }}:latest
+          tags: ${{ steps.image.outputs.name }}:base
           cache-from: type=gha,scope=base
           cache-to: type=gha,mode=max,scope=base
