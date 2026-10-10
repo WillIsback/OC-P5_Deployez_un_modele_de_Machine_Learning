@@ -1,6 +1,6 @@
 # Image applicative : dérive de l'image de base (dépendances précompilées) et
 # n'ajoute que le code de l'application. Le build est donc très rapide.
-ARG BASE_IMAGE=ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning-base:latest
+ARG BASE_IMAGE=ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:base
 FROM ${BASE_IMAGE}
 
 WORKDIR /app
