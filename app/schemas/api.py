@@ -68,21 +68,32 @@ class EnergyPredictionRequest(BaseModel):
 
 
 class EnergyPredictionResponse(BaseModel):
-    """Energy consumption prediction for the Seattle building."""
+    """Prédictions pour les deux cibles du modèle."""
 
     model_name: str
     energy_use_kbtu: float
+    ghg_emissions_tco2e: float = 0.0
     predicted_at: datetime
     units: str = "kBtu/an"
+    emissions_units: str = "t CO2e/an"
 
 
-class MetricsResponse(BaseModel):
-    """Model evaluation metrics computed on the held-out test set."""
-
+class ModelScores(BaseModel):
     R2: float
     MAE: float
     MedAE: float
     MedAPE_pct: float
+
+
+class TargetScores(BaseModel):
+    unit: str
+    models: dict[str, ModelScores]
+
+
+class MetricsResponse(BaseModel):
+    """Table de scores regroupée par cible (modèles CatBoost et Kumo)."""
+
+    targets: dict[str, TargetScores]
 
 
 class ComparisonPredictionResponse(BaseModel):

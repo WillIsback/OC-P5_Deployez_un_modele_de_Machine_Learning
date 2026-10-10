@@ -1,5 +1,6 @@
 """Functional test of the Bearer-JWT authentication + CatBoost prediction."""
 
+import json
 import os
 import sys
 import tempfile
@@ -14,14 +15,14 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-from app.core import model_service
-from app.core.model_service import CAT_FEATURES, FEATURE_COLUMNS
+from app.core import metrics_service, model_service
 from app.main import app
+from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
 
 client = TestClient(app)
 
 
-def train_demo_model(path: str) -> None:
+def train_demo_model(path: str, base: float) -> None:
     """Entraîne un petit CatBoost sur données synthétiques (layout Seattle)."""
     rng = np.random.default_rng(0)
     n = 120
@@ -55,26 +56,77 @@ def train_demo_model(path: str) -> None:
     for col in CAT_FEATURES:
         df[col] = df[col].astype(str)
     X = df[FEATURE_COLUMNS]
-    y_log = np.log1p(3.0 * df["PropertyGFABuilding(s)"] + 30000)
-    model = CatBoostRegressor(iterations=120, depth=4, random_seed=42, verbose=0)
+    y_log = np.log1p(base + 3.0 * df["PropertyGFABuilding(s)"])
+    model = CatBoostRegressor(iterations=60, depth=4, random_seed=42, verbose=0)
     model.fit(X, y_log, cat_features=CAT_FEATURES)
     model.save_model(path)
 
 
-_DEMO_MODEL = os.path.join(tempfile.gettempdir(), "energy_demo.cbm")
+_DEMO_DIR = Path(tempfile.gettempdir()) / "p5_demo_models"
+_DEMO_ENERGY = _DEMO_DIR / "energy.cbm"
+_DEMO_EMISSIONS = _DEMO_DIR / "emissions.cbm"
+
+_SCORES_PATH = os.path.join(tempfile.gettempdir(), "p5_scores.json")
+_SCORES = {
+    "targets": {
+        "energy": {
+            "unit": "kBtu/an",
+            "models": {
+                "catboost": {
+                    "R2": 0.91,
+                    "MAE": 1200.0,
+                    "MedAE": 800.0,
+                    "MedAPE_pct": 5.2,
+                },
+                "kumo": {
+                    "R2": 0.55,
+                    "MAE": 3400.0,
+                    "MedAE": 2100.0,
+                    "MedAPE_pct": 14.7,
+                },
+            },
+        },
+        "emissions": {
+            "unit": "t CO2e/an",
+            "models": {
+                "catboost": {
+                    "R2": 0.86,
+                    "MAE": 2.4,
+                    "MedAE": 1.6,
+                    "MedAPE_pct": 6.1,
+                },
+                "kumo": {
+                    "R2": 0.42,
+                    "MAE": 5.8,
+                    "MedAE": 4.1,
+                    "MedAPE_pct": 19.3,
+                },
+            },
+        },
+    }
+}
 
 
-def ensure_demo_model() -> None:
-    """Garantit un modèle disponible et pointe le service dessus (reset singleton)."""
-    if not os.path.exists(_DEMO_MODEL):
-        train_demo_model(_DEMO_MODEL)
-    model_service.MODEL_PATH = _DEMO_MODEL
-    model_service._model = None
+def ensure_demo_models() -> None:
+    """Garantit deux modèles disponibles et pointe le service dessus."""
+    _DEMO_DIR.mkdir(parents=True, exist_ok=True)
+    if not _DEMO_ENERGY.exists():
+        train_demo_model(str(_DEMO_ENERGY), base=30000.0)
+    if not _DEMO_EMISSIONS.exists():
+        train_demo_model(str(_DEMO_EMISSIONS), base=50.0)
+    model_service.MODEL_PATHS["energy"] = str(_DEMO_ENERGY)
+    model_service.MODEL_PATHS["emissions"] = str(_DEMO_EMISSIONS)
+    model_service._models = {}
 
 
 @pytest.fixture(autouse=True)
-def _demo_model_autouse():
-    ensure_demo_model()
+def _demo_models_autouse(monkeypatch):
+    ensure_demo_models()
+    if not os.path.exists(_SCORES_PATH):
+        with open(_SCORES_PATH, "w", encoding="utf-8") as f:
+            json.dump(_SCORES, f)
+    monkeypatch.setattr(metrics_service, "METRICS_PATH", _SCORES_PATH)
+    monkeypatch.setattr(metrics_service, "_metrics", None)
     yield
 
 
@@ -133,7 +185,11 @@ def test_model_list_with_token():
     token = test_token_endpoint_ok()
     r = client.get("/model/list", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text
-    assert r.json()[0]["name"] == "catboost-energy-seattle"
+    models = r.json()
+    assert len(models) == 3
+    assert models[0]["name"] == "catboost-energy-seattle"
+    assert models[1]["name"] == "catboost-emissions-seattle"
+    assert models[2]["name"] == "kumo-tabular-zero-shot"
 
 
 def test_model_predict_with_token():
@@ -146,6 +202,7 @@ def test_model_predict_with_token():
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["energy_use_kbtu"] > 0
+    assert body["ghg_emissions_tco2e"] > 0
     assert body["units"] == "kBtu/an"
     assert "model_name" in body
 
@@ -174,8 +231,73 @@ def test_model_predict_rejects_extra_field():
     assert r.status_code == 422, r.text
 
 
+def test_metrics_requires_token():
+    r = client.get("/model/metrics")
+    assert r.status_code == 401, r.text
+
+
+def test_metrics_with_token():
+    token = test_token_endpoint_ok()
+    r = client.get(
+        "/model/metrics",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "targets" in body
+    energy = body["targets"]["energy"]
+    assert energy["unit"] == "kBtu/an"
+    cb = energy["models"]["catboost"]
+    assert isinstance(cb["R2"], float)
+    assert cb["MAE"] > 0
+    assert cb["MedAE"] > 0
+    assert cb["MedAPE_pct"] > 0
+    assert "kumo" in energy["models"]
+    assert body["targets"]["emissions"]["unit"] == "t CO2e/an"
+
+
+def test_compare_requires_token():
+    r = client.post("/model/predict/compare", json=EXAMPLE_PAYLOAD)
+    assert r.status_code == 401, r.text
+
+
+def test_compare_with_token():
+    token = test_token_endpoint_ok()
+    r = client.post(
+        "/model/predict/compare",
+        json=EXAMPLE_PAYLOAD,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "catboost_prediction" in body
+    assert "kumo_prediction" in body
+    assert "comparison_note" in body
+    # CatBoost prediction
+    cb = body["catboost_prediction"]
+    assert cb["energy_use_kbtu"] > 0
+    assert cb["ghg_emissions_tco2e"] > 0
+    assert "model_name" in cb
+    # Kumo-Tabular prediction
+    km = body["kumo_prediction"]
+    assert km["energy_use_kbtu"] > 0
+    assert km["ghg_emissions_tco2e"] > 0
+    assert km["model_name"] == "kumo-tabular-zero-shot"
+
+
+def test_compare_rejects_extra_field():
+    token = test_token_endpoint_ok()
+    bad = dict(EXAMPLE_PAYLOAD, extra_field="nope")
+    r = client.post(
+        "/model/predict/compare",
+        json=bad,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 422, r.text
+
+
 if __name__ == "__main__":
-    ensure_demo_model()
+    ensure_demo_models()
     test_token_endpoint_ok()
     test_wrong_password()
     test_model_list_requires_token()
@@ -184,13 +306,9 @@ if __name__ == "__main__":
     test_model_predict_with_token()
     test_model_predict_requires_token()
     test_model_predict_rejects_extra_field()
-    print("All Bearer-JWT + CatBoost tests passed.")
-    test_token_endpoint_ok()
-    test_wrong_password()
-    test_model_list_requires_token()
-    test_model_list_with_token()
-    test_model_list_with_bare_token()
-    test_model_predict_with_token()
-    test_model_predict_requires_token()
-    test_model_predict_rejects_extra_field()
-    print("All Bearer-JWT + CatBoost tests passed.")
+    test_compare_requires_token()
+    test_compare_with_token()
+    test_compare_rejects_extra_field()
+    test_metrics_requires_token()
+    test_metrics_with_token()
+    print("All Bearer-JWT + CatBoost + Kumo-Tabular tests passed.")
