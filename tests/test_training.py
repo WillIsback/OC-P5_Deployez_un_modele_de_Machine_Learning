@@ -313,13 +313,83 @@ def test_pipeline_run_logs_mlflow_without_kumo(tmp_path, monkeypatch):
         },
     )
     tracking = tmp_path / "mlflow.db"
+    tracking_uri = f"sqlite:///{tracking}"
     pipe = TrainPipeline(
         df_raw=make_synth(140),
         seed=42,
         cv_splits=2,
         output_dir=tmp_path,
-        mlflow_tracking_uri=f"sqlite:///{tracking}",
+        mlflow_tracking_uri=tracking_uri,
     )
     metrics = pipe.run(include_kumo=False)
     assert set(metrics) == set(dp.TARGETS)
     assert (tmp_path / "scores.json").exists()
+    assert (tmp_path / "scores.csv").exists()
+
+    from mlflow.tracking import MlflowClient
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+    experiment = client.get_experiment_by_name("seattle-energy")
+    assert experiment is not None
+
+    runs = client.search_runs([experiment.experiment_id])
+    by_name = {r.data.tags.get("mlflow.runName"): r for r in runs}
+    assert "p5-multitarget" in by_name
+    parent = by_name["p5-multitarget"]
+    assert "catboost-energy" in by_name
+    assert "catboost-emissions" in by_name
+
+    # runs catboost imbriqués : parentRunId = run parent
+    for name in ("catboost-energy", "catboost-emissions"):
+        run = by_name[name]
+        assert run.data.tags.get("mlflow.parentRunId") == parent.info.run_id
+        assert any(k.startswith("test_") for k in run.data.metrics)
+
+    # artefacts modèles listés (fichiers .cbm sur chaque run catboost)
+    cbm_artifacts = set()
+    for name in ("catboost-energy", "catboost-emissions"):
+        cbm_artifacts |= {
+            a.path for a in client.list_artifacts(by_name[name].info.run_id, "models")
+        }
+    assert sum(p.endswith(".cbm") for p in cbm_artifacts) >= len(dp.TARGETS)
+
+    # scores JSON + CSV sur le run parent
+    artifact_paths = {
+        a.path for a in client.list_artifacts(parent.info.run_id, "models")
+    }
+    assert any(p.endswith("scores.json") for p in artifact_paths)
+    assert any(p.endswith("scores.csv") for p in artifact_paths)
+
+
+def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
+    from app.core import kumo_service
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(
+        pl,
+        "COARSE_GRID",
+        {
+            "iterations": [60],
+            "learning_rate": [0.1],
+            "depth": [4],
+            "l2_leaf_reg": [3.0],
+        },
+    )
+
+    def boom(X, target):
+        raise RuntimeError("kumo indisponible")
+
+    monkeypatch.setattr(kumo_service, "predict_batch", boom, raising=False)
+
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        seed=42,
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=tracking_uri,
+    )
+    metrics = pipe.run(include_kumo=True)
+    assert set(metrics) == set(dp.TARGETS)
+    for target in dp.TARGETS:
+        assert set(metrics[target]["models"]) == {"catboost"}

@@ -332,6 +332,14 @@ class TrainPipeline:
             self.metrics[target] = block
         return self
 
+    def _scores_rows(self) -> list[dict]:
+        """Aplatit la table de scores en lignes (une par cible et modèle)."""
+        rows = []
+        for target, block in self.metrics.items():
+            for model, m in block["models"].items():
+                rows.append({"target": target, "model": model, **m})
+        return rows
+
     @timed("run")
     def run(self, include_kumo: bool = True) -> dict:
         """Orchestre toutes les étapes et logue dans MLflow."""
@@ -353,7 +361,13 @@ class TrainPipeline:
             def kumo_predictor(X, target):
                 return kumo_service.predict_batch(X, target)
 
-        self.evaluate(kumo_predictor=kumo_predictor)
+        try:
+            self.evaluate(kumo_predictor=kumo_predictor)
+        except Exception as exc:
+            if kumo_predictor is None:
+                raise
+            log.warning("Échec de l'évaluation Kumo, repli sur CatBoost : %s", exc)
+            self.evaluate(kumo_predictor=None)
 
         with mlflow.start_run(run_name="p5-multitarget"):
             mlflow.log_params(
@@ -372,16 +386,18 @@ class TrainPipeline:
                     mlflow.log_artifact(
                         str(self.output_dir / f"{target}.cbm"), artifact_path="models"
                     )
-            if include_kumo:
-                for target in dp.TARGETS:
-                    with mlflow.start_run(run_name=f"kumo-{target}", nested=True):
-                        mlflow.log_param("mode", "zero-shot")
-                        log_mlflow_metrics(
-                            "test", self.metrics[target]["models"]["kumo"]
-                        )
+            for target in dp.TARGETS:
+                if "kumo" not in self.metrics[target]["models"]:
+                    continue
+                with mlflow.start_run(run_name=f"kumo-{target}", nested=True):
+                    mlflow.log_param("mode", "zero-shot")
+                    log_mlflow_metrics("test", self.metrics[target]["models"]["kumo"])
 
             scores_path = self.output_dir / "scores.json"
             save_json(scores_path, {"targets": self.metrics})
             mlflow.log_artifact(str(scores_path), artifact_path="models")
+            scores_csv = self.output_dir / "scores.csv"
+            pd.DataFrame(self._scores_rows()).to_csv(scores_csv, index=False)
+            mlflow.log_artifact(str(scores_csv), artifact_path="models")
         log.info("run terminé : %s", scores_path)
         return self.metrics
