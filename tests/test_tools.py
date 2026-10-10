@@ -10,14 +10,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.lib import tools
 
 
-def test_get_logger_is_stable_and_has_no_duplicate_handlers():
+def test_get_logger_is_stable_and_setup_logging_is_idempotent(monkeypatch):
     log1 = tools.get_logger("demo")
     log2 = tools.get_logger("demo")
     assert log1 is log2
-    assert (
-        logging.getLogger("demo").handlers == []
-        or len(logging.getLogger("demo").handlers) <= 1
-    )
+
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    root.handlers = []
+    monkeypatch.setattr(tools, "_configured", False)
+    try:
+        tools.setup_logging()
+        tools.setup_logging()
+        tools.get_logger("demo")
+        assert len(root.handlers) == 1
+    finally:
+        root.handlers = saved_handlers
 
 
 def test_sanitize_metric_key_replaces_percent():

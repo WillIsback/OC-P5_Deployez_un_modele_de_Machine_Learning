@@ -58,7 +58,7 @@ def timed(label: str | None = None) -> Callable[[F], F]:
     return deco
 
 
-def log_calls[F: Callable[..., Any]](fn: F) -> F:
+def log_calls(fn: F) -> F:  # noqa: UP047
     """Décorateur : logue l'entrée et la sortie d'une fonction."""
 
     @functools.wraps(fn)
@@ -93,8 +93,10 @@ def ensure_dir(path: str | os.PathLike[str]) -> Path:
 
 
 def save_json(path: str | os.PathLike[str], obj: Any) -> None:
-    """Écrit ``obj`` en JSON UTF-8 indenté."""
-    with open(path, "w", encoding="utf-8") as f:
+    """Écrit ``obj`` en JSON UTF-8 indenté (crée les dossiers parents)."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
 
 
@@ -105,7 +107,11 @@ def load_json(path: str | os.PathLike[str]) -> Any:
 
 
 def set_seed(seed: int = 42) -> None:
-    """Fixe les graines ``random`` et ``numpy``."""
+    """Fixe les graines ``random`` et ``numpy``.
+
+    ``PYTHONHASHSEED`` n'est pas modifiable à chaud : il doit être défini
+    avant le démarrage de l'interpréteur pour réellement fixer le hash.
+    """
     random.seed(seed)
     np.random.seed(seed)
 
