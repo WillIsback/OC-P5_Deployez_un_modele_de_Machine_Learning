@@ -19,7 +19,7 @@ from catboost import CatBoostRegressor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.core.model_service as model_service
+from app.core import model_service
 
 ROWS = 2000
 rng = np.random.default_rng(42)
