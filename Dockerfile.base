@@ -25,3 +25,6 @@ RUN apt-get update \
     && apt-get purge -y git \
     && rm -rf /var/lib/apt/lists/* \
     && chown -R appuser:appuser /app
+
+# Utilisateur non-root par défaut (satisfait DS-0002).
+USER appuser

@@ -6,8 +6,7 @@ FROM ${BASE_IMAGE}
 WORKDIR /app
 
 # Copier le code applicatif (les deps sont déjà dans /app/.venv via l'image de base).
-COPY app/ ./app/
-RUN chown -R appuser:appuser /app/app
+COPY --chown=appuser:appuser app/ ./app/
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
