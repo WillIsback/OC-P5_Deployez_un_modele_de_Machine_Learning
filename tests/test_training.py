@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -20,13 +21,22 @@ def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
     building_type = (nonres_types * n_other)[:n_other] + [
         "Multifamily LR (1-4)"
     ] * n_multi
+    outlier = ["None"] * n
+    outlier[2] = "High outlier"
+    outlier[3] = "Low outlier"
+    compliance = ["Compliant"] * n
+    compliance[4] = "NonCompliant"
+    default_data = [False] * n
+    default_data[5] = True
     return pd.DataFrame(
         {
             "BuildingType": building_type,
             "PrimaryPropertyType": rng.choice(
                 ["Office", "Retail Store", "Warehouse"], n
             ),
-            "Neighborhood": rng.choice(["BALLARD", "Downtown", "Fremont"], n),
+            "Neighborhood": rng.choice(
+                ["ballard", " Downtown ", "FREMONT", "Capitol Hill"], n
+            ),
             "Latitude": rng.uniform(47.5, 47.7, n),
             "Longitude": rng.uniform(-122.4, -122.25, n),
             "YearBuilt": rng.integers(1930, 2020, n),
@@ -49,12 +59,12 @@ def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
             "PropertyName": [f"b{i}" for i in range(n)],
             "Address": [f"{i} st" for i in range(n)],
             "TaxParcelIdentificationNumber": [f"t{i}" for i in range(n)],
-            "ZipCode": ["98101"] * n,
-            "CouncilDistrictCode": [1] * n,
+            "ZipCode": rng.choice(["98101", "98102", "98103"], n),
+            "CouncilDistrictCode": rng.integers(1, 8, n),
             "ListOfAllPropertyUseTypes": ["Office"] * n,
-            "ComplianceStatus": ["Compliant"] * n,
-            "DefaultData": [False] * n,
-            "Outlier": ["None"] * n,
+            "ComplianceStatus": compliance,
+            "DefaultData": default_data,
+            "Outlier": outlier,
             "YearsENERGYSTARCertified": [np.nan] * n,
             "ENERGYSTARScore": rng.uniform(0, 100, n),
             "GHGEmissionsIntensity": rng.uniform(0, 10, n),
@@ -98,3 +108,72 @@ def test_build_flags_from_raw_columns():
     assert set(flags.columns) == {"Has_NaturalGas", "Has_Steam"}
     assert flags["Has_NaturalGas"].sum() >= 1
     assert flags["Has_Steam"].sum() == 0
+
+
+def test_build_clean_removes_outliers_and_drops_column():
+    clean = dp.build_clean(make_synth(80))
+    assert "Outlier" not in clean.columns
+    assert 2 not in clean.index
+    assert 3 not in clean.index
+
+
+def test_build_clean_removes_non_compliant_rows():
+    clean = dp.build_clean(make_synth(80))
+    assert "ComplianceStatus" not in clean.columns
+    assert "DefaultData" not in clean.columns
+    assert 4 not in clean.index
+
+
+def test_build_clean_normalizes_neighborhood():
+    clean = dp.build_clean(make_synth(80))
+    assert (
+        clean["Neighborhood"] == clean["Neighborhood"].str.upper().str.strip()
+    ).all()
+    assert "Downtown" not in clean["Neighborhood"].values
+
+
+def test_build_clean_sets_min_one_building():
+    df = make_synth(80)
+    df.loc[0, "NumberofBuildings"] = 0
+    clean = dp.build_clean(df)
+    assert 0 in clean.index
+    assert clean.loc[0, "NumberofBuildings"] == 1
+
+
+def test_build_clean_drops_pii_columns():
+    clean = dp.build_clean(make_synth(80))
+    for col in dp.PII_COLUMNS:
+        assert col not in clean.columns
+
+
+def test_ensure_dataset_returns_existing_without_download(tmp_path):
+    dest = tmp_path / "data.csv"
+    dest.write_text("a,b\n1,2\n")
+    result = dp.ensure_dataset(dest, url="file:///nonexistent/bogus.csv")
+    assert result == dest
+    assert dest.read_text() == "a,b\n1,2\n"
+
+
+def test_ensure_dataset_missing_without_download_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        dp.ensure_dataset(tmp_path / "missing.csv")
+
+
+def test_ensure_dataset_downloads_from_file_url(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text("col\n1\n")
+    dest = tmp_path / "nested" / "data.csv"
+    result = dp.ensure_dataset(dest, url=source.as_uri(), download=True)
+    assert result == dest
+    assert dest.exists()
+    assert dest.read_text() == source.read_text()
+
+
+def test_ensure_dataset_download_failure_cleans_tmp(tmp_path):
+    source = tmp_path / "does_not_exist.csv"
+    dest = tmp_path / "nested" / "data.csv"
+    with pytest.raises(RuntimeError):
+        dp.ensure_dataset(dest, url=source.as_uri(), download=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    assert not tmp.exists()
+    assert not dest.exists()

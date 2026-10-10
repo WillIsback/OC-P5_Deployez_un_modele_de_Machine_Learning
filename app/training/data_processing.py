@@ -81,6 +81,7 @@ def build_clean(df: pd.DataFrame) -> pd.DataFrame:
     if "NumberofBuildings" in out.columns:
         out.loc[out["NumberofBuildings"] == 0, "NumberofBuildings"] = 1
 
+    # défensif : le filtre > 0 ci-dessus a déjà exclu les cibles NaN
     out = out.dropna(subset=TARGET_COLUMNS)
     return out
 
@@ -136,6 +137,12 @@ def ensure_dataset(
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    urllib.request.urlretrieve(url, tmp)  # URL constante du projet
+    try:
+        urllib.request.urlretrieve(url, tmp)  # URL constante du projet
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Échec du téléchargement du dataset depuis {url}: {exc}"
+        ) from exc
     shutil.move(str(tmp), str(path))
     return path
