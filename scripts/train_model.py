@@ -81,4 +81,6 @@ import os
 os.makedirs(os.path.dirname(model_service.MODEL_PATH), exist_ok=True)
 model.save_model(model_service.MODEL_PATH)
 print(f"Demo model saved to {model_service.MODEL_PATH}")
-print(f"Trained on {len(df)} rows, log1p target, cat_features={model_service.CAT_FEATURES}.")
+print(
+    f"Trained on {len(df)} rows, log1p target, cat_features={model_service.CAT_FEATURES}."
+)
