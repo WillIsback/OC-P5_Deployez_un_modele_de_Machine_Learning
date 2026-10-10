@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -69,10 +71,14 @@ class TrainPipeline:
         self.models: dict[str, CatBoostRegressor] = {}
         self.metrics: dict = {}
 
-    def _require_split(self) -> None:
+    def _require_split(self, *, require_features: bool = False) -> None:
         """Garde commune : vérifie que split() a bien préparé l'état."""
         if self.df_clean is None or self.idx_train is None:
             raise RuntimeError("Appelez split() avant cette étape.")
+        if require_features and (self.X_train is None or self.Y_train is None):
+            raise RuntimeError(
+                "Appelez split() puis feature_engineering() avant cette étape."
+            )
 
     @timed("split")
     def split(self) -> TrainPipeline:
@@ -104,7 +110,14 @@ class TrainPipeline:
             setattr(self, f"Y_{name}", self.df_clean.loc[idx, dp.TARGET_COLUMNS])
         return self
 
-    def _fit_early_stopping(self, X_fit, y_fit_log, X_val, y_val_log, params):
+    def _fit_early_stopping(
+        self,
+        X_fit: pd.DataFrame,
+        y_fit_log: pd.Series,
+        X_val: pd.DataFrame,
+        y_val_log: pd.Series,
+        params: dict,
+    ) -> CatBoostRegressor:
         model = CatBoostRegressor(
             random_seed=self.seed,
             loss_function="RMSE",
@@ -121,9 +134,7 @@ class TrainPipeline:
         )
         return model
 
-    def _yield_grid(self, grid: dict):
-        from itertools import product
-
+    def _yield_grid(self, grid: dict) -> Iterator[dict]:
         keys = list(grid)
         for combo in product(*(grid[k] for k in keys)):
             yield dict(zip(keys, combo))
@@ -131,14 +142,17 @@ class TrainPipeline:
     @timed("cross_validate")
     def cross_validate(self) -> TrainPipeline:
         """CV sur le train, pour chaque cible et chaque config de COARSE_GRID."""
-        self._require_split()
+        self._require_split(require_features=True)
         kf = KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
         for target in dp.TARGETS:
             y_log = np.log1p(self.Y_train[dp.TARGETS[target]["column"]])
+            folds = [
+                (tr, va, np.expm1(y_log.iloc[va])) for tr, va in kf.split(self.X_train)
+            ]
             results = []
             for params in self._yield_grid(COARSE_GRID):
                 per_fold = []
-                for tr, va in kf.split(self.X_train):
+                for tr, va, y_val_real in folds:
                     model = self._fit_early_stopping(
                         self.X_train.iloc[tr],
                         y_log.iloc[tr],
@@ -147,7 +161,7 @@ class TrainPipeline:
                         params,
                     )
                     pred = np.expm1(model.predict(self.X_train.iloc[va]))
-                    per_fold.append(metrics_reelles(np.expm1(y_log.iloc[va]), pred))
+                    per_fold.append(metrics_reelles(y_val_real, pred))
                 mean = {
                     k: float(np.mean([f[k] for f in per_fold])) for k in per_fold[0]
                 }
@@ -162,11 +176,13 @@ class TrainPipeline:
     @timed("pre_tune")
     def pre_tune(self) -> TrainPipeline:
         """Dérive une grille restreinte depuis les résultats de CV."""
+        if not self.cv_results:
+            raise RuntimeError("Appelez cross_validate() avant pre_tune().")
         for target, results in self.cv_results.items():
             best = min(results, key=lambda r: r["mean"]["MedAPE_%"])
             p = best["params"]
             self.pre_tuned_grid[target] = {
-                "iterations": [min(COARSE_GRID["iterations"][0], MAX_TREES_BUDGET)],
+                "iterations": [COARSE_GRID["iterations"][0]],
                 "learning_rate": sorted({p["learning_rate"], p["learning_rate"] * 1.5}),
                 "depth": sorted({max(3, p["depth"] - 1), p["depth"]}),
                 "l2_leaf_reg": sorted({p["l2_leaf_reg"], p["l2_leaf_reg"] * 2}),

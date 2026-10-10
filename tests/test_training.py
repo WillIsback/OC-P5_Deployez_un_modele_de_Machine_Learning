@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.training import data_processing as dp
-from app.training.pipeline import MAX_TREES_BUDGET, TrainPipeline
+from app.training.pipeline import COARSE_GRID, MAX_TREES_BUDGET, TrainPipeline
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -198,7 +198,16 @@ def test_pipeline_cross_validate_and_pre_tune_restrict_grid():
     for target in dp.TARGETS:
         assert target in pipe.cv_results
         assert pipe.cv_results[target]  # au moins une config évaluée
+        assert len(pipe.cv_results[target][0]["per_fold"]) == pipe.cv_splits
+        assert set(pipe.cv_results[target][0]["mean"]) == {
+            "R2",
+            "MAE",
+            "MedAE",
+            "MedAPE_%",
+        }
         grid = pipe.pre_tuned_grid[target]
         # grille restreinte : pas plus de 2 valeurs par axe
         assert all(len(v) <= 2 for v in grid.values())
-        assert grid["iterations"][0] <= MAX_TREES_BUDGET
+        # le budget "overkill" doit pouvoir mordre : cap > seuil souple
+        assert grid["iterations"][0] == COARSE_GRID["iterations"][0]
+        assert MAX_TREES_BUDGET < grid["iterations"][0]
