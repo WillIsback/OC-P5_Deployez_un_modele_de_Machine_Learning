@@ -46,6 +46,7 @@ graph TD
 |----------|---------------------------|----------------|
 | `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, commitlint, hadolint, actionlint, zizmor, lockfile |
 | `ci-test.yml` | `ci-test` | Tests unitaires + couverture, seuil global/incrémental, dry-run, matrices Python 3.11/3.12 |
+| `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `ci-security` | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
 | `ci-traceability.yml` | `ci-traceability` | Référence issue obligatoire (R1/R3), type de PR valide, cohérence semver (Q7) |
 

@@ -1,0 +1,49 @@
+# Workflow : Gate de performance du modèle (non-régression)
+# Compare les scores du dernier entraînement à la baseline committée.
+name: ci-model-performance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: model-performance-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci-model-performance:
+    name: ci-model-performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          version: "latest"
+          cache-dependency-glob: "uv.lock"
+
+      - name: Synchroniser les dépendances
+        run: |
+          set -euo pipefail
+          uv sync --frozen --no-cache --no-install-project
+
+      - name: Gate performance (dernier entraînement vs baseline)
+        run: |
+          set -euo pipefail
+          uv run --frozen --no-sync python -m app.training.score_validation

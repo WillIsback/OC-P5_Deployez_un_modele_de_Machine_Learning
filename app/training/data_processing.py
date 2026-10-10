@@ -100,10 +100,14 @@ def build_flags(df_raw: pd.DataFrame, df_clean: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_catboost(X: pd.DataFrame, flags: pd.DataFrame) -> pd.DataFrame:
-    """Catégorielles brutes en str + marqueurs de raccordement."""
+    """Catégorielles brutes en str + marqueurs de raccordement.
+
+    Les valeurs manquantes sont remplacées par ``"UNKNOWN"`` : sans cela,
+    pandas 3.0 conserve les NA et CatBoost refuse les catégorielles non-str.
+    """
     d = X.copy()
     for col in CAT_FEATURES:
-        d[col] = d[col].astype(str)
+        d[col] = d[col].astype("string").fillna("UNKNOWN").astype(str)
     return d.join(flags)[FEATURE_COLUMNS]
 
 
