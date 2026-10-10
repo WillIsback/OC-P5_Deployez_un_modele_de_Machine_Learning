@@ -27,6 +27,19 @@ COARSE_GRID = {
 MAX_TREES_BUDGET = 1200  # garde-fou "overkill"
 
 
+def _candidate_sort_key(c: dict) -> tuple:
+    """Ordre spec §7 : MedAPE, puis R2 desc, gap desc, puis complexité (overkill,
+    n_trees, depth)."""
+    return (
+        c["MedAPE_val"],
+        -c["R2_val"],
+        -c["overfit_gap"],
+        c["overkill"],
+        c["n_trees"],
+        c["depth"],
+    )
+
+
 class TrainPipeline:
     """Orchestre split -> FE -> CV -> pré-réglage -> fine-tuning -> train -> éval."""
 
@@ -134,6 +147,19 @@ class TrainPipeline:
         )
         return model
 
+    def _fit_full(
+        self, X: pd.DataFrame, y_log: pd.Series, params: dict
+    ) -> CatBoostRegressor:
+        """Refit sans early stopping sur l'intégralité des données fournies."""
+        model = CatBoostRegressor(
+            random_seed=self.seed,
+            loss_function="RMSE",
+            verbose=0,
+            **params,
+        )
+        model.fit(X, y_log, cat_features=CAT_FEATURES)
+        return model
+
     def _yield_grid(self, grid: dict) -> Iterator[dict]:
         keys = list(grid)
         for combo in product(*(grid[k] for k in keys)):
@@ -192,11 +218,16 @@ class TrainPipeline:
 
     @timed("fine_tune")
     def fine_tune(self) -> TrainPipeline:
-        """Recherche restreinte ; classe par MedAPE/R2 puis pénalise l'overkill."""
+        """Recherche restreinte ; classe par MedAPE/R2/gap puis complexité (spec §7)."""
         self._require_split(require_features=True)
         if not self.pre_tuned_grid:
             raise RuntimeError("Appelez pre_tune() avant fine_tune().")
         for target in dp.TARGETS:
+            if not self.pre_tuned_grid.get(target):
+                raise RuntimeError(
+                    f"Grille pré-réglée absente pour la cible {target!r}; "
+                    "appelez pre_tune()."
+                )
             y_log = np.log1p(self.Y_train[dp.TARGETS[target]["column"]])
             X_fit, X_val, y_fit, y_val = train_test_split(
                 self.X_train, y_log, test_size=0.15, random_state=self.seed
@@ -225,15 +256,8 @@ class TrainPipeline:
                     m_val["MedAPE_%"],
                     model.tree_count_,
                 )
-            # priorité : pas d'overkill, puis MedAPE, puis R2, puis gap
-            candidates.sort(
-                key=lambda c: (
-                    c["overkill"],
-                    c["MedAPE_val"],
-                    -c["R2_val"],
-                    -c["overfit_gap"],
-                )
-            )
+            # spec §7 : MedAPE, puis R2 desc, gap desc, puis complexité
+            candidates.sort(key=_candidate_sort_key)
             best = candidates[0]
             self.best_params[target] = {
                 "iterations": best["iterations"],
@@ -247,7 +271,8 @@ class TrainPipeline:
 
     @timed("train_final")
     def train_final(self) -> TrainPipeline:
-        """Boucle sur les cibles : refit sur tout le train, sauvegarde un .cbm."""
+        """Boucle sur les cibles : refit sur TOUT le train avec le nombre d'arbres
+        réglé, puis sauvegarde un .cbm."""
         self._require_split(require_features=True)
         if not self.best_params:
             raise RuntimeError("Appelez fine_tune() avant train_final().")
@@ -255,14 +280,16 @@ class TrainPipeline:
         for target in dp.TARGETS:
             column = dp.TARGETS[target]["column"]
             y_log = np.log1p(self.Y_train[column])
+            best = self.best_params[target]
+            n_trees = best.get("n_trees", 0)
+            iterations = n_trees if n_trees and n_trees > 0 else best["iterations"]
             params = {
-                k: self.best_params[target][k]
-                for k in ("iterations", "learning_rate", "depth", "l2_leaf_reg")
+                "iterations": iterations,
+                "learning_rate": best["learning_rate"],
+                "depth": best["depth"],
+                "l2_leaf_reg": best["l2_leaf_reg"],
             }
-            X_fit, X_val, y_fit, y_val = train_test_split(
-                self.X_train, y_log, test_size=0.1, random_state=self.seed
-            )
-            model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
+            model = self._fit_full(self.X_train, y_log, params)
             out = self.output_dir / f"{target}.cbm"
             model.save_model(str(out))
             self.models[target] = model

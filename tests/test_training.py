@@ -10,7 +10,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.training import data_processing as dp
-from app.training.pipeline import COARSE_GRID, MAX_TREES_BUDGET, TrainPipeline
+from app.training.pipeline import (
+    COARSE_GRID,
+    MAX_TREES_BUDGET,
+    TrainPipeline,
+    _candidate_sort_key,
+)
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -225,3 +230,28 @@ def test_pipeline_fine_tune_penalizes_overkill_and_trains_final(tmp_path):
         cbm = tmp_path / f"{target}.cbm"
         assert cbm.exists()
         assert pipe.models[target] is not None
+
+
+def _cand(medape, r2, gap, overkill, n_trees, depth):
+    return {
+        "MedAPE_val": medape,
+        "R2_val": r2,
+        "overfit_gap": gap,
+        "overkill": overkill,
+        "n_trees": n_trees,
+        "depth": depth,
+    }
+
+
+def test_candidate_sort_key_prefers_metrics_then_complexity():
+    base = _cand(10.0, 0.8, 0.1, 0, 500, 5)
+    lower_medape = _cand(5.0, 0.8, 0.1, 0, 500, 5)
+    higher_r2 = _cand(10.0, 0.9, 0.1, 0, 500, 5)
+    no_overkill = _cand(10.0, 0.8, 0.1, 0, 500, 5)
+    overkill = _cand(10.0, 0.8, 0.1, 1, 500, 5)
+    fewer_trees = _cand(10.0, 0.8, 0.1, 0, 100, 5)
+
+    assert _candidate_sort_key(lower_medape) < _candidate_sort_key(base)
+    assert _candidate_sort_key(higher_r2) < _candidate_sort_key(base)
+    assert _candidate_sort_key(no_overkill) < _candidate_sort_key(overkill)
+    assert _candidate_sort_key(fewer_trees) < _candidate_sort_key(base)
