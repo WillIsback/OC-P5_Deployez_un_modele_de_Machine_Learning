@@ -104,6 +104,17 @@ def test_prepare_dataset_shapes_and_targets():
         assert pd.api.types.is_string_dtype(X[col])
 
 
+def test_prepare_catboost_fills_missing_categoricals():
+    df = make_synth(40)
+    df.loc[0, "SecondLargestPropertyUseType"] = np.nan
+    df.loc[1, "ThirdLargestPropertyUseType"] = np.nan
+    X, _, _ = dp.prepare_dataset(df)
+    for col in dp.CAT_FEATURES:
+        assert not X[col].isna().any()
+    assert X.loc[0, "SecondLargestPropertyUseType"] == "UNKNOWN"
+    assert X.loc[1, "ThirdLargestPropertyUseType"] == "UNKNOWN"
+
+
 def test_build_flags_from_raw_columns():
     df = make_synth(40)
     df["NaturalGas(kBtu)"] = 0.0
