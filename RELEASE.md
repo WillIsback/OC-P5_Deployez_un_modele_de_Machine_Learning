@@ -95,7 +95,6 @@ Toute étape peut être rejouée via `workflow_dispatch bump:none` en cas d'inci
 ## 🔧 Prérequis
 
 - **Secrets/variables** :
-  - `RULESETS_TOKEN` : token avec permission `Administration: Write` (ou `GITHUB_TOKEN` avec permissions adaptées)
   - L'ID d'App GitHub pour le bypass du tag ruleset (à configurer dans le ruleset)
 - **Permissions** du workflow `release.yml` :
   - `contents: write` (push tag + release)
@@ -111,6 +110,5 @@ Toute étape peut être rejouée via `workflow_dispatch bump:none` en cas d'inci
   3. Ajouter l'App avec `bypass_mode: always`
   4. Sauvegarder
 
-  L'ID de l'App n'étant pas connu au moment de la création du ruleset via l'API,
-  cette étape manuelle est nécessaire. Le ruleset livré dans `.github/rulesets/` contient
-  uniquement le bypass `RepositoryRole: admin`.
+  L'ID de l'App n'étant pas connu au moment de la création du ruleset, cette étape
+  manuelle est nécessaire.
