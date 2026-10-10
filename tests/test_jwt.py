@@ -1,9 +1,7 @@
 """Functional test of the Bearer-JWT authentication + CatBoost prediction."""
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -62,11 +60,6 @@ def train_demo_model(path: str, base: float) -> None:
     model.save_model(path)
 
 
-_DEMO_DIR = Path(tempfile.gettempdir()) / "p5_demo_models"
-_DEMO_ENERGY = _DEMO_DIR / "energy.cbm"
-_DEMO_EMISSIONS = _DEMO_DIR / "emissions.cbm"
-
-_SCORES_PATH = os.path.join(tempfile.gettempdir(), "p5_scores.json")
 _SCORES = {
     "targets": {
         "energy": {
@@ -107,25 +100,18 @@ _SCORES = {
 }
 
 
-def ensure_demo_models() -> None:
-    """Garantit deux modèles disponibles et pointe le service dessus."""
-    _DEMO_DIR.mkdir(parents=True, exist_ok=True)
-    if not _DEMO_ENERGY.exists():
-        train_demo_model(str(_DEMO_ENERGY), base=30000.0)
-    if not _DEMO_EMISSIONS.exists():
-        train_demo_model(str(_DEMO_EMISSIONS), base=50.0)
-    model_service.MODEL_PATHS["energy"] = str(_DEMO_ENERGY)
-    model_service.MODEL_PATHS["emissions"] = str(_DEMO_EMISSIONS)
-    model_service._models = {}
-
-
 @pytest.fixture(autouse=True)
-def _demo_models_autouse(monkeypatch):
-    ensure_demo_models()
-    if not os.path.exists(_SCORES_PATH):
-        with open(_SCORES_PATH, "w", encoding="utf-8") as f:
-            json.dump(_SCORES, f)
-    monkeypatch.setattr(metrics_service, "METRICS_PATH", _SCORES_PATH)
+def _isolated_models(tmp_path, monkeypatch):
+    energy = tmp_path / "energy.cbm"
+    emissions = tmp_path / "emissions.cbm"
+    train_demo_model(str(energy), base=30000.0)
+    train_demo_model(str(emissions), base=50.0)
+    monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(energy))
+    monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(emissions))
+    monkeypatch.setattr(model_service, "_models", {})
+    scores = tmp_path / "scores.json"
+    scores.write_text(json.dumps(_SCORES))
+    monkeypatch.setattr(metrics_service, "METRICS_PATH", str(scores))
     monkeypatch.setattr(metrics_service, "_metrics", None)
     yield
 
@@ -294,21 +280,3 @@ def test_compare_rejects_extra_field():
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 422, r.text
-
-
-if __name__ == "__main__":
-    ensure_demo_models()
-    test_token_endpoint_ok()
-    test_wrong_password()
-    test_model_list_requires_token()
-    test_model_list_with_token()
-    test_model_list_with_bare_token()
-    test_model_predict_with_token()
-    test_model_predict_requires_token()
-    test_model_predict_rejects_extra_field()
-    test_compare_requires_token()
-    test_compare_with_token()
-    test_compare_rejects_extra_field()
-    test_metrics_requires_token()
-    test_metrics_with_token()
-    print("All Bearer-JWT + CatBoost + Kumo-Tabular tests passed.")

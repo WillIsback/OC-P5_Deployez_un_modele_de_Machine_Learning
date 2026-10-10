@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from ..core import kumo_service, metrics_service, model_service
 from ..core.security import get_current_user
@@ -55,8 +56,6 @@ async def read_metrics():
     responses={503: {"description": "Model not loaded"}},
 )
 async def write_prediction(payload: EnergyPredictionRequest):
-    from starlette.concurrency import run_in_threadpool
-
     try:
         preds = await run_in_threadpool(model_service.predict_all, payload)
     except FileNotFoundError as exc:
@@ -75,8 +74,6 @@ async def write_prediction(payload: EnergyPredictionRequest):
     responses={503: {"description": "One or both models could not be loaded"}},
 )
 async def write_comparison(payload: EnergyPredictionRequest):
-    from starlette.concurrency import run_in_threadpool
-
     now = datetime.now(UTC)
     try:
         cb = await run_in_threadpool(model_service.predict_all, payload)
