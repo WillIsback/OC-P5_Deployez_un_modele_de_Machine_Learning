@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from itertools import product
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
 from sklearn.model_selection import KFold, train_test_split
 
-from app.lib.tools import ensure_dir, get_logger, metrics_reelles, timed
+from app.lib.tools import (
+    ensure_dir,
+    get_logger,
+    log_mlflow_metrics,
+    metrics_reelles,
+    sanitize_metric_key,
+    save_json,
+    timed,
+)
 from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
 from app.training import data_processing as dp
 
@@ -295,3 +305,83 @@ class TrainPipeline:
             self.models[target] = model
             log.info("train_final %s -> %s", target, out)
         return self
+
+    @timed("evaluate")
+    def evaluate(self, kumo_predictor=None) -> TrainPipeline:
+        """Métriques test par cible (CatBoost + Kumo) -> table regroupée."""
+        self._require_split(require_features=True)
+        if not self.models:
+            raise RuntimeError("Appelez train_final() avant evaluate().")
+        for target in dp.TARGETS:
+            column = dp.TARGETS[target]["column"]
+            y_true = self.Y_test[column].to_numpy()
+            y_pred = np.expm1(self.models[target].predict(self.X_test))
+            cb = metrics_reelles(y_true, y_pred)
+            block = {
+                "unit": dp.TARGETS[target]["unit"],
+                "models": {
+                    "catboost": {sanitize_metric_key(k): v for k, v in cb.items()}
+                },
+            }
+            if kumo_predictor is not None:
+                kumo_pred = np.asarray(kumo_predictor(self.X_test, target), dtype=float)
+                km = metrics_reelles(y_true, kumo_pred)
+                block["models"]["kumo"] = {
+                    sanitize_metric_key(k): v for k, v in km.items()
+                }
+            self.metrics[target] = block
+        return self
+
+    @timed("run")
+    def run(self, include_kumo: bool = True) -> dict:
+        """Orchestre toutes les étapes et logue dans MLflow."""
+        mlflow.set_tracking_uri(
+            self.mlflow_tracking_uri
+            or os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+        )
+        mlflow.set_experiment(
+            self.mlflow_experiment or os.getenv("MLFLOW_EXPERIMENT", "seattle-energy")
+        )
+
+        self.split().feature_engineering().cross_validate().pre_tune()
+        self.fine_tune().train_final()
+
+        kumo_predictor = None
+        if include_kumo:
+            from app.core import kumo_service
+
+            def kumo_predictor(X, target):
+                return kumo_service.predict_batch(X, target)
+
+        self.evaluate(kumo_predictor=kumo_predictor)
+
+        with mlflow.start_run(run_name="p5-multitarget"):
+            mlflow.log_params(
+                {
+                    "test_size": self.test_size,
+                    "seed": self.seed,
+                    "cv_splits": self.cv_splits,
+                }
+            )
+            for target in dp.TARGETS:
+                with mlflow.start_run(run_name=f"catboost-{target}", nested=True):
+                    mlflow.log_params(self.best_params[target])
+                    log_mlflow_metrics(
+                        "test", self.metrics[target]["models"]["catboost"]
+                    )
+                    mlflow.log_artifact(
+                        str(self.output_dir / f"{target}.cbm"), artifact_path="models"
+                    )
+            if include_kumo:
+                for target in dp.TARGETS:
+                    with mlflow.start_run(run_name=f"kumo-{target}", nested=True):
+                        mlflow.log_param("mode", "zero-shot")
+                        log_mlflow_metrics(
+                            "test", self.metrics[target]["models"]["kumo"]
+                        )
+
+            scores_path = self.output_dir / "scores.json"
+            save_json(scores_path, {"targets": self.metrics})
+            mlflow.log_artifact(str(scores_path), artifact_path="models")
+        log.info("run terminé : %s", scores_path)
+        return self.metrics

@@ -281,3 +281,45 @@ def test_candidate_sort_key_metric_priority_beats_overkill():
         min([worse_r2_clean, better_r2_overkill], key=_candidate_sort_key)
         is better_r2_overkill
     )
+
+
+def test_pipeline_evaluate_builds_grouped_scores(tmp_path):
+    pipe = TrainPipeline(
+        df_raw=make_synth(160), seed=42, cv_splits=3, output_dir=tmp_path
+    )
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    pipe.fine_tune().train_final()
+    # Kumo remplacé par un prédicteur factice (pas de chargement lourd en test)
+    pipe.evaluate(kumo_predictor=lambda X, target: np.full(len(X), 42.0))
+    assert set(pipe.metrics) == set(dp.TARGETS)
+    for target, block in pipe.metrics.items():
+        assert block["unit"] == dp.TARGETS[target]["unit"]
+        assert set(block["models"]) == {"catboost", "kumo"}
+        assert set(block["models"]["catboost"]) == {"R2", "MAE", "MedAE", "MedAPE_pct"}
+
+
+def test_pipeline_run_logs_mlflow_without_kumo(tmp_path, monkeypatch):
+    # grille réduite pour un run rapide
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(
+        pl,
+        "COARSE_GRID",
+        {
+            "iterations": [60],
+            "learning_rate": [0.1],
+            "depth": [4],
+            "l2_leaf_reg": [3.0],
+        },
+    )
+    tracking = tmp_path / "mlflow.db"
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        seed=42,
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=f"sqlite:///{tracking}",
+    )
+    metrics = pipe.run(include_kumo=False)
+    assert set(metrics) == set(dp.TARGETS)
+    assert (tmp_path / "scores.json").exists()
