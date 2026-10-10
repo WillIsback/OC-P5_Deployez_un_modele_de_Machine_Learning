@@ -46,6 +46,4 @@ jobs:
       - name: Gate performance (dernier entraînement vs baseline)
         run: |
           set -euo pipefail
-          uv run --frozen --no-sync python -m app.training.score_validation \
-            models/scores.json \
-            models/scores_baseline.json
+          uv run --frozen --no-sync python -m app.training.score_validation

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.training import score_validation as sv
 from app.training.score_validation import validate_scores
 
 
@@ -66,3 +68,33 @@ def test_validate_missing_model_fails():
     del cur["targets"]["energy"]["models"]["catboost"]
     violations = validate_scores(cur, _scores())
     assert any("energy" in v for v in violations)
+
+
+def _write(path: Path, obj) -> None:
+    path.write_text(json.dumps(obj), encoding="utf-8")
+
+
+def test_main_ok_returns_zero(tmp_path, monkeypatch):
+    scores = tmp_path / "scores.json"
+    baseline = tmp_path / "baseline.json"
+    _write(scores, _scores())
+    _write(baseline, _scores())
+    monkeypatch.setattr(sv, "DEFAULT_SCORES_PATH", scores)
+    monkeypatch.setattr(sv, "DEFAULT_BASELINE_PATH", baseline)
+    assert sv.main() == 0
+
+
+def test_main_missing_files_returns_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(sv, "DEFAULT_SCORES_PATH", tmp_path / "nope.json")
+    monkeypatch.setattr(sv, "DEFAULT_BASELINE_PATH", tmp_path / "nope2.json")
+    assert sv.main() == 1
+
+
+def test_main_regression_returns_one(tmp_path, monkeypatch):
+    scores = tmp_path / "scores.json"
+    baseline = tmp_path / "baseline.json"
+    _write(scores, _scores(energy=(0.30, 60.0)))
+    _write(baseline, _scores(energy=(0.30, 40.0)))
+    monkeypatch.setattr(sv, "DEFAULT_SCORES_PATH", scores)
+    monkeypatch.setattr(sv, "DEFAULT_BASELINE_PATH", baseline)
+    assert sv.main() == 1

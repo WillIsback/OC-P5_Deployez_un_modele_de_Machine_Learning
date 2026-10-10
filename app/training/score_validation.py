@@ -7,7 +7,6 @@ CatBoost se dégradent au-delà des marges autorisées.
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -96,19 +95,22 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Gate de performance du modèle")
-    parser.add_argument("scores", nargs="?", default=str(DEFAULT_SCORES_PATH))
-    parser.add_argument("baseline", nargs="?", default=str(DEFAULT_BASELINE_PATH))
-    args = parser.parse_args(argv)
+def main() -> int:
+    """Point d'entrée CLI : lit les deux fichiers canoniques du dépôt.
 
-    for label, raw in (("scores", args.scores), ("baseline", args.baseline)):
-        if not Path(raw).exists():
-            print(f"❌ Fichier {label} introuvable : {raw}")
+    Les chemins sont des constantes (pas d'argument CLI) afin d'éviter toute
+    injection de chemin via l'entrée utilisateur.
+    """
+    for label, path in (
+        ("scores", DEFAULT_SCORES_PATH),
+        ("baseline", DEFAULT_BASELINE_PATH),
+    ):
+        if not path.exists():
+            print(f"❌ Fichier {label} introuvable : {path}")
             return 1
     try:
-        scores = _load(Path(args.scores))
-        baseline = _load(Path(args.baseline))
+        scores = _load(DEFAULT_SCORES_PATH)
+        baseline = _load(DEFAULT_BASELINE_PATH)
     except json.JSONDecodeError as exc:
         print(f"❌ JSON invalide : {exc}")
         return 1
