@@ -117,19 +117,6 @@ jobs:
           pip install --only-binary :all: "yamllint==1.38.0" -q
           yamllint -d '{"extends": "default", "rules": {"line-length": "disable", "document-start": "disable", "brackets": "disable", "new-line-at-end-of-file": "disable"}}' .github/
 
-      - name: Validation JSON des rulesets (check-jsonschema)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pip install --only-binary :all: "check-jsonschema==0.38.2" -q
-          for f in .github/rulesets/*.json; do
-            echo "Validation de $f..."
-            check-jsonschema \
-              --schemafile https://json.schemastore.org/github-ruleset.json \
-              "$f" || echo "⚠️  Schéma distant indisponible, validation squelettique uniquement"
-            python -c "import json, sys; f=open('$f'); data=json.load(f); assert 'name' in data; assert 'target' in data; assert 'rules' in data; print(f'  ✅ {len(data[\"rules\"])} règles présentes')"
-          done
-
       - name: Upload des artefacts de test
         if: always()
         uses: actions/upload-artifact@v4

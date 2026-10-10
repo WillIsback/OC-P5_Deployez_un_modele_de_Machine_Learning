@@ -183,10 +183,8 @@ uv run pytest --cov=app tests/                 # ensemble des tests
 ├── dependabot.yml              # Mise à jour automatique des dépendances
 ├── ISSUE_TEMPLATE/              # Templates d'issues (5 types + config)
 ├── PULL_REQUEST_TEMPLATE.md     # Template de PR
-├── rulesets/                    # Rulesets GitHub (branches + tags)
 ├── security-exceptions.yml     # Exceptions de sécurité
 └── workflows/                   # Workflows CI/CD
-    ├── apply-rulesets.yml        # Application idempotente des rulesets
     ├── ci-code-quality.yml       # Qualité du code (lint, format, actionlint)
     ├── ci-security.yml           # Sécurité (SCA, SAST, secrets, IaC)
     ├── ci-test.yml               # Tests unitaires + couverture
