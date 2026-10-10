@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.training import data_processing as dp
-from app.training.pipeline import TrainPipeline
+from app.training.pipeline import MAX_TREES_BUDGET, TrainPipeline
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -190,3 +190,15 @@ def test_pipeline_split_then_feature_engineering():
     assert set(pipe.Y_train.columns) == {"SiteEnergyUse(kBtu)", "TotalGHGEmissions"}
     # pas de fuite : le test n'a pas été vu à l'ajustement
     assert set(pipe.idx_train).isdisjoint(set(pipe.idx_test))
+
+
+def test_pipeline_cross_validate_and_pre_tune_restrict_grid():
+    pipe = TrainPipeline(df_raw=make_synth(160), seed=42, cv_splits=3)
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    for target in dp.TARGETS:
+        assert target in pipe.cv_results
+        assert pipe.cv_results[target]  # au moins une config évaluée
+        grid = pipe.pre_tuned_grid[target]
+        # grille restreinte : pas plus de 2 valeurs par axe
+        assert all(len(v) <= 2 for v in grid.values())
+        assert grid["iterations"][0] <= MAX_TREES_BUDGET

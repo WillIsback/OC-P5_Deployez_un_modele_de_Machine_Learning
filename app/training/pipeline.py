@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, train_test_split
 
-from app.lib.tools import get_logger, timed
-from app.schemas.api import FEATURE_COLUMNS
+from app.lib.tools import get_logger, metrics_reelles, timed
+from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
 from app.training import data_processing as dp
 
 log = get_logger(__name__)
@@ -101,4 +102,74 @@ class TrainPipeline:
             flags = dp.build_flags(self.df_raw, self.df_clean.loc[idx])
             setattr(self, f"X_{name}", dp.prepare_catboost(X, flags))
             setattr(self, f"Y_{name}", self.df_clean.loc[idx, dp.TARGET_COLUMNS])
+        return self
+
+    def _fit_early_stopping(self, X_fit, y_fit_log, X_val, y_val_log, params):
+        model = CatBoostRegressor(
+            random_seed=self.seed,
+            loss_function="RMSE",
+            verbose=0,
+            early_stopping_rounds=100,
+            **params,
+        )
+        model.fit(
+            X_fit,
+            y_fit_log,
+            cat_features=CAT_FEATURES,
+            eval_set=(X_val, y_val_log),
+            use_best_model=True,
+        )
+        return model
+
+    def _yield_grid(self, grid: dict):
+        from itertools import product
+
+        keys = list(grid)
+        for combo in product(*(grid[k] for k in keys)):
+            yield dict(zip(keys, combo))
+
+    @timed("cross_validate")
+    def cross_validate(self) -> TrainPipeline:
+        """CV sur le train, pour chaque cible et chaque config de COARSE_GRID."""
+        self._require_split()
+        kf = KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
+        for target in dp.TARGETS:
+            y_log = np.log1p(self.Y_train[dp.TARGETS[target]["column"]])
+            results = []
+            for params in self._yield_grid(COARSE_GRID):
+                per_fold = []
+                for tr, va in kf.split(self.X_train):
+                    model = self._fit_early_stopping(
+                        self.X_train.iloc[tr],
+                        y_log.iloc[tr],
+                        self.X_train.iloc[va],
+                        y_log.iloc[va],
+                        params,
+                    )
+                    pred = np.expm1(model.predict(self.X_train.iloc[va]))
+                    per_fold.append(metrics_reelles(np.expm1(y_log.iloc[va]), pred))
+                mean = {
+                    k: float(np.mean([f[k] for f in per_fold])) for k in per_fold[0]
+                }
+                std = {k: float(np.std([f[k] for f in per_fold])) for k in per_fold[0]}
+                results.append(
+                    {"params": params, "mean": mean, "std": std, "per_fold": per_fold}
+                )
+                log.info("CV %s %s -> MedAPE=%.1f%%", target, params, mean["MedAPE_%"])
+            self.cv_results[target] = results
+        return self
+
+    @timed("pre_tune")
+    def pre_tune(self) -> TrainPipeline:
+        """Dérive une grille restreinte depuis les résultats de CV."""
+        for target, results in self.cv_results.items():
+            best = min(results, key=lambda r: r["mean"]["MedAPE_%"])
+            p = best["params"]
+            self.pre_tuned_grid[target] = {
+                "iterations": [min(COARSE_GRID["iterations"][0], MAX_TREES_BUDGET)],
+                "learning_rate": sorted({p["learning_rate"], p["learning_rate"] * 1.5}),
+                "depth": sorted({max(3, p["depth"] - 1), p["depth"]}),
+                "l2_leaf_reg": sorted({p["l2_leaf_reg"], p["l2_leaf_reg"] * 2}),
+            }
+            log.info("pre_tune %s : grille=%s", target, self.pre_tuned_grid[target])
         return self
