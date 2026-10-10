@@ -15,7 +15,13 @@ import numpy as np
 import pandas as pd
 import torch
 
-from ..schemas.api import FEATURE_COLUMNS, TARGETS, EnergyPredictionRequest
+from ..lib.tools import get_logger
+from ..schemas.api import (
+    CAT_FEATURES,
+    FEATURE_COLUMNS,
+    TARGETS,
+    EnergyPredictionRequest,
+)
 from ._kumo_context import build_context_df
 
 # ---------------------------------------------------------------------------
@@ -23,14 +29,7 @@ from ._kumo_context import build_context_df
 # ---------------------------------------------------------------------------
 _DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-_CAT_COLUMNS = [
-    "BuildingType",
-    "PrimaryPropertyType",
-    "Neighborhood",
-    "LargestPropertyUseType",
-    "SecondLargestPropertyUseType",
-    "ThirdLargestPropertyUseType",
-]
+_log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Singleton paresseux du modèle KumoTabular partagé entre toutes les cibles.
@@ -73,7 +72,7 @@ def _context_table(target: str):
             if table is None:
                 sdm = _import_sdm()
                 df = build_context_df(target)
-                for col in _CAT_COLUMNS:
+                for col in CAT_FEATURES:
                     df[col] = df[col].astype(str)
                 table = sdm.TableTensor.from_pandas(
                     df=df,
@@ -97,7 +96,7 @@ def _to_table(df: pd.DataFrame):
     if "PropertyGFABuilding" in d.columns:
         d["PropertyGFABuilding(s)"] = d.pop("PropertyGFABuilding")
 
-    for col in _CAT_COLUMNS:
+    for col in CAT_FEATURES:
         d[col] = d[col].astype(str)
     for col in ("Has_NaturalGas", "Has_Steam"):
         d[col] = d[col].astype(float)
@@ -150,6 +149,8 @@ def predict_all(request: EnergyPredictionRequest) -> dict[str, float]:
 
 def predict_batch(X, target: str) -> np.ndarray:
     """Prédit ``target`` pour une matrice de features (colonnes FEATURE_COLUMNS)."""
+    if getattr(X, "ndim", 2) != 2:
+        raise ValueError("predict_batch attend une matrice 2-D de features.")
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS)
     return _predict_dataframe(X, target)
@@ -160,5 +161,6 @@ def is_available() -> bool:
     try:
         load_model()
         return True
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Kumo-Tabular indisponible : %s", exc)
         return False
