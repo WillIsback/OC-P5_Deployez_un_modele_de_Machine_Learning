@@ -14,8 +14,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY app/ ./app/
 
-# Install the application dependencies.
-RUN uv sync --frozen --no-cache --no-install-project \
+# Installer git (requis par uv pour la dépendance git structured-data-models),
+# puis les dépendances applicatives.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && uv sync --frozen --no-cache --no-install-project \
+    && apt-get purge -y git \
+    && rm -rf /var/lib/apt/lists/* \
     && chown -R appuser:appuser /app
 
 # Healthcheck
