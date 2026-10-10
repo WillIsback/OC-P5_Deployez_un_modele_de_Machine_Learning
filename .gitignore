@@ -169,3 +169,6 @@ models/
 catboost_info/
 mlflow.db
 mlruns/
+
+# Données brutes téléchargées (reproductibles via `python -m app.training --download`)
+data/
