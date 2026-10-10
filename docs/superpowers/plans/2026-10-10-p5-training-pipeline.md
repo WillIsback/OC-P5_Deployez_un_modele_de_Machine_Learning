@@ -68,9 +68,10 @@ def test_get_logger_is_stable_and_has_no_duplicate_handlers():
     log1 = tools.get_logger("demo")
     log2 = tools.get_logger("demo")
     assert log1 is log2
-    assert logging.getLogger("demo").handlers == [] or len(
-        logging.getLogger("demo").handlers
-    ) <= 1
+    assert (
+        logging.getLogger("demo").handlers == []
+        or len(logging.getLogger("demo").handlers) <= 1
+    )
 
 
 def test_sanitize_metric_key_replaces_percent():
@@ -169,8 +170,11 @@ def timed(label: str | None = None) -> Callable[[F], F]:
             try:
                 return fn(*args, **kwargs)
             finally:
-                log.info("%s took %.2fs", label or fn.__qualname__,
-                         time.perf_counter() - start)
+                log.info(
+                    "%s took %.2fs",
+                    label or fn.__qualname__,
+                    time.perf_counter() - start,
+                )
 
         return wrapper  # type: ignore[return-value]
 
@@ -355,9 +359,7 @@ def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     n_multi = n // 8
     n_other = n - n_multi
-    building_type = ["Multifamily LR (1-4)"] * n_multi + [
-        "NonResidential"
-    ] * n_other
+    building_type = ["Multifamily LR (1-4)"] * n_multi + ["NonResidential"] * n_other
     return pd.DataFrame(
         {
             "BuildingType": building_type,
@@ -562,9 +564,7 @@ def build_flags(df_raw: pd.DataFrame, df_clean: pd.DataFrame) -> pd.DataFrame:
             "Has_NaturalGas": (
                 df_raw.loc[df_clean.index, "NaturalGas(kBtu)"] > 0
             ).astype(int),
-            "Has_Steam": (
-                df_raw.loc[df_clean.index, "SteamUse(kBtu)"] > 0
-            ).astype(int),
+            "Has_Steam": (df_raw.loc[df_clean.index, "SteamUse(kBtu)"] > 0).astype(int),
         },
         index=df_clean.index,
     )
@@ -824,80 +824,75 @@ Expected: FAIL — `AttributeError: 'TrainPipeline' object has no attribute 'cro
 Ajouter à `TrainPipeline` :
 
 ```python
-    def _fit_early_stopping(self, X_fit, y_fit_log, X_val, y_val_log, params):
-        model = CatBoostRegressor(
-            random_seed=self.seed,
-            loss_function="RMSE",
-            verbose=0,
-            early_stopping_rounds=100,
-            **params,
-        )
-        model.fit(
-            X_fit,
-            y_fit_log,
-            cat_features=CAT_FEATURES,
-            eval_set=(X_val, y_val_log),
-            use_best_model=True,
-        )
-        return model
+def _fit_early_stopping(self, X_fit, y_fit_log, X_val, y_val_log, params):
+    model = CatBoostRegressor(
+        random_seed=self.seed,
+        loss_function="RMSE",
+        verbose=0,
+        early_stopping_rounds=100,
+        **params,
+    )
+    model.fit(
+        X_fit,
+        y_fit_log,
+        cat_features=CAT_FEATURES,
+        eval_set=(X_val, y_val_log),
+        use_best_model=True,
+    )
+    return model
 
-    def _yield_grid(self, grid: dict):
-        from itertools import product
 
-        keys = list(grid)
-        for combo in product(*(grid[k] for k in keys)):
-            yield dict(zip(keys, combo))
+def _yield_grid(self, grid: dict):
+    from itertools import product
 
-    @timed("cross_validate")
-    def cross_validate(self) -> "TrainPipeline":
-        """CV sur le train, pour chaque cible et chaque config de COARSE_GRID."""
-        kf = KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
-        for target in TARGETS:
-            y_log = np.log1p(self.Y_train[TARGETS[target]["column"]])
-            results = []
-            for params in self._yield_grid(COARSE_GRID):
-                per_fold = []
-                for tr, va in kf.split(self.X_train):
-                    model = self._fit_early_stopping(
-                        self.X_train.iloc[tr], y_log.iloc[tr],
-                        self.X_train.iloc[va], y_log.iloc[va], params,
-                    )
-                    pred = np.expm1(model.predict(self.X_train.iloc[va]))
-                    per_fold.append(
-                        metrics_reelles(
-                            np.expm1(y_log.iloc[va]), pred
-                        )
-                    )
-                mean = {
-                    k: float(np.mean([f[k] for f in per_fold]))
-                    for k in per_fold[0]
-                }
-                std = {
-                    k: float(np.std([f[k] for f in per_fold]))
-                    for k in per_fold[0]
-                }
-                results.append(
-                    {"params": params, "mean": mean, "std": std, "per_fold": per_fold}
+    keys = list(grid)
+    for combo in product(*(grid[k] for k in keys)):
+        yield dict(zip(keys, combo))
+
+
+@timed("cross_validate")
+def cross_validate(self) -> "TrainPipeline":
+    """CV sur le train, pour chaque cible et chaque config de COARSE_GRID."""
+    kf = KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
+    for target in TARGETS:
+        y_log = np.log1p(self.Y_train[TARGETS[target]["column"]])
+        results = []
+        for params in self._yield_grid(COARSE_GRID):
+            per_fold = []
+            for tr, va in kf.split(self.X_train):
+                model = self._fit_early_stopping(
+                    self.X_train.iloc[tr],
+                    y_log.iloc[tr],
+                    self.X_train.iloc[va],
+                    y_log.iloc[va],
+                    params,
                 )
-                log.info("CV %s %s -> MedAPE=%.1f%%", target, params,
-                         mean["MedAPE_%"])
-            self.cv_results[target] = results
-        return self
+                pred = np.expm1(model.predict(self.X_train.iloc[va]))
+                per_fold.append(metrics_reelles(np.expm1(y_log.iloc[va]), pred))
+            mean = {k: float(np.mean([f[k] for f in per_fold])) for k in per_fold[0]}
+            std = {k: float(np.std([f[k] for f in per_fold])) for k in per_fold[0]}
+            results.append(
+                {"params": params, "mean": mean, "std": std, "per_fold": per_fold}
+            )
+            log.info("CV %s %s -> MedAPE=%.1f%%", target, params, mean["MedAPE_%"])
+        self.cv_results[target] = results
+    return self
 
-    @timed("pre_tune")
-    def pre_tune(self) -> "TrainPipeline":
-        """Dérive une grille restreinte depuis les résultats de CV."""
-        for target, results in self.cv_results.items():
-            best = min(results, key=lambda r: r["mean"]["MedAPE_%"])
-            p = best["params"]
-            self.pre_tuned_grid[target] = {
-                "iterations": [min(COARSE_GRID["iterations"][0], MAX_TREES_BUDGET)],
-                "learning_rate": sorted({p["learning_rate"], p["learning_rate"] * 1.5}),
-                "depth": sorted({max(3, p["depth"] - 1), p["depth"]}),
-                "l2_leaf_reg": sorted({p["l2_leaf_reg"], p["l2_leaf_reg"] * 2}),
-            }
-            log.info("pre_tune %s : grille=%s", target, self.pre_tuned_grid[target])
-        return self
+
+@timed("pre_tune")
+def pre_tune(self) -> "TrainPipeline":
+    """Dérive une grille restreinte depuis les résultats de CV."""
+    for target, results in self.cv_results.items():
+        best = min(results, key=lambda r: r["mean"]["MedAPE_%"])
+        p = best["params"]
+        self.pre_tuned_grid[target] = {
+            "iterations": [min(COARSE_GRID["iterations"][0], MAX_TREES_BUDGET)],
+            "learning_rate": sorted({p["learning_rate"], p["learning_rate"] * 1.5}),
+            "depth": sorted({max(3, p["depth"] - 1), p["depth"]}),
+            "l2_leaf_reg": sorted({p["l2_leaf_reg"], p["l2_leaf_reg"] * 2}),
+        }
+        log.info("pre_tune %s : grille=%s", target, self.pre_tuned_grid[target])
+    return self
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -949,75 +944,79 @@ Expected: FAIL — `AttributeError: ... 'fine_tune'`
 Ajouter à `TrainPipeline` :
 
 ```python
-    @timed("fine_tune")
-    def fine_tune(self) -> "TrainPipeline":
-        """Recherche restreinte ; classe par MedAPE/R2 puis pénalise l'overkill."""
-        for target in TARGETS:
-            y_log = np.log1p(self.Y_train[TARGETS[target]["column"]])
-            X_fit, X_val, y_fit, y_val = train_test_split(
-                self.X_train, y_log, test_size=0.15, random_state=self.seed
-            )
-            candidates = []
-            for params in self._yield_grid(self.pre_tuned_grid[target]):
-                model = self._fit_early_stopping(
-                    X_fit, y_fit, X_val, y_val, params
-                )
-                m_fit = metrics_reelles(np.expm1(y_fit), np.expm1(model.predict(X_fit)))
-                m_val = metrics_reelles(np.expm1(y_val), np.expm1(model.predict(X_val)))
-                overfit_gap = m_val["R2"] - m_fit["R2"]
-                candidates.append(
-                    {
-                        **params,
-                        "n_trees": model.tree_count_,
-                        "MedAPE_val": m_val["MedAPE_%"],
-                        "R2_val": m_val["R2"],
-                        "overfit_gap": overfit_gap,
-                        # overkill : 1 si dépasse le budget d'arbres, sinon 0
-                        "overkill": int(model.tree_count_ > MAX_TREES_BUDGET),
-                    }
-                )
-                log.info("fine_tune %s %s -> MedAPE=%.1f%% trees=%d",
-                         target, params, m_val["MedAPE_%"], model.tree_count_)
-            # priorité : pas d'overkill, puis MedAPE, puis R2, puis gap
-            candidates.sort(
-                key=lambda c: (
-                    c["overkill"],
-                    c["MedAPE_val"],
-                    -c["R2_val"],
-                    -c["overfit_gap"],
-                )
-            )
-            best = candidates[0]
-            self.best_params[target] = {
-                "iterations": best["iterations"],
-                "learning_rate": best["learning_rate"],
-                "depth": best["depth"],
-                "l2_leaf_reg": best["l2_leaf_reg"],
-                "overfit_gap": best["overfit_gap"],
-                "n_trees": best["n_trees"],
-            }
-        return self
-
-    @timed("train_final")
-    def train_final(self) -> "TrainPipeline":
-        """Boucle sur les cibles : refit sur tout le train, sauvegarde un .cbm."""
-        ensure_dir(self.output_dir)
-        for target in TARGETS:
-            column = TARGETS[target]["column"]
-            y_log = np.log1p(self.Y_train[column])
-            params = {
-                k: self.best_params[target][k]
-                for k in ("iterations", "learning_rate", "depth", "l2_leaf_reg")
-            }
-            X_fit, X_val, y_fit, y_val = train_test_split(
-                self.X_train, y_log, test_size=0.1, random_state=self.seed
-            )
+@timed("fine_tune")
+def fine_tune(self) -> "TrainPipeline":
+    """Recherche restreinte ; classe par MedAPE/R2 puis pénalise l'overkill."""
+    for target in TARGETS:
+        y_log = np.log1p(self.Y_train[TARGETS[target]["column"]])
+        X_fit, X_val, y_fit, y_val = train_test_split(
+            self.X_train, y_log, test_size=0.15, random_state=self.seed
+        )
+        candidates = []
+        for params in self._yield_grid(self.pre_tuned_grid[target]):
             model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
-            out = self.output_dir / f"{target}.cbm"
-            model.save_model(str(out))
-            self.models[target] = model
-            log.info("train_final %s -> %s", target, out)
-        return self
+            m_fit = metrics_reelles(np.expm1(y_fit), np.expm1(model.predict(X_fit)))
+            m_val = metrics_reelles(np.expm1(y_val), np.expm1(model.predict(X_val)))
+            overfit_gap = m_val["R2"] - m_fit["R2"]
+            candidates.append(
+                {
+                    **params,
+                    "n_trees": model.tree_count_,
+                    "MedAPE_val": m_val["MedAPE_%"],
+                    "R2_val": m_val["R2"],
+                    "overfit_gap": overfit_gap,
+                    # overkill : 1 si dépasse le budget d'arbres, sinon 0
+                    "overkill": int(model.tree_count_ > MAX_TREES_BUDGET),
+                }
+            )
+            log.info(
+                "fine_tune %s %s -> MedAPE=%.1f%% trees=%d",
+                target,
+                params,
+                m_val["MedAPE_%"],
+                model.tree_count_,
+            )
+        # priorité : pas d'overkill, puis MedAPE, puis R2, puis gap
+        candidates.sort(
+            key=lambda c: (
+                c["overkill"],
+                c["MedAPE_val"],
+                -c["R2_val"],
+                -c["overfit_gap"],
+            )
+        )
+        best = candidates[0]
+        self.best_params[target] = {
+            "iterations": best["iterations"],
+            "learning_rate": best["learning_rate"],
+            "depth": best["depth"],
+            "l2_leaf_reg": best["l2_leaf_reg"],
+            "overfit_gap": best["overfit_gap"],
+            "n_trees": best["n_trees"],
+        }
+    return self
+
+
+@timed("train_final")
+def train_final(self) -> "TrainPipeline":
+    """Boucle sur les cibles : refit sur tout le train, sauvegarde un .cbm."""
+    ensure_dir(self.output_dir)
+    for target in TARGETS:
+        column = TARGETS[target]["column"]
+        y_log = np.log1p(self.Y_train[column])
+        params = {
+            k: self.best_params[target][k]
+            for k in ("iterations", "learning_rate", "depth", "l2_leaf_reg")
+        }
+        X_fit, X_val, y_fit, y_val = train_test_split(
+            self.X_train, y_log, test_size=0.1, random_state=self.seed
+        )
+        model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
+        out = self.output_dir / f"{target}.cbm"
+        model.save_model(str(out))
+        self.models[target] = model
+        log.info("train_final %s -> %s", target, out)
+    return self
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1070,86 +1069,75 @@ Expected: FAIL — `AttributeError: ... 'evaluate'`
 Ajouter à `TrainPipeline` :
 
 ```python
-    @timed("evaluate")
-    def evaluate(self, kumo_predictor=None) -> "TrainPipeline":
-        """Métriques test par cible (CatBoost + Kumo) -> table regroupée."""
-        for target in TARGETS:
-            column = TARGETS[target]["column"]
-            y_true = self.Y_test[column].to_numpy()
-            y_pred = np.expm1(self.models[target].predict(self.X_test))
-            cb = metrics_reelles(y_true, y_pred)
-            block = {
-                "unit": TARGETS[target]["unit"],
-                "models": {
-                    "catboost": {
-                        sanitize_metric_key(k): v for k, v in cb.items()
-                    }
-                },
+@timed("evaluate")
+def evaluate(self, kumo_predictor=None) -> "TrainPipeline":
+    """Métriques test par cible (CatBoost + Kumo) -> table regroupée."""
+    for target in TARGETS:
+        column = TARGETS[target]["column"]
+        y_true = self.Y_test[column].to_numpy()
+        y_pred = np.expm1(self.models[target].predict(self.X_test))
+        cb = metrics_reelles(y_true, y_pred)
+        block = {
+            "unit": TARGETS[target]["unit"],
+            "models": {"catboost": {sanitize_metric_key(k): v for k, v in cb.items()}},
+        }
+        if kumo_predictor is not None:
+            kumo_pred = np.asarray(kumo_predictor(self.X_test, target), dtype=float)
+            km = metrics_reelles(y_true, kumo_pred)
+            block["models"]["kumo"] = {sanitize_metric_key(k): v for k, v in km.items()}
+        self.metrics[target] = block
+    return self
+
+
+@timed("run")
+def run(self, include_kumo: bool = True) -> dict:
+    """Orchestre toutes les étapes et logue dans MLflow."""
+    mlflow.set_tracking_uri(
+        self.mlflow_tracking_uri
+        or os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+    )
+    mlflow.set_experiment(
+        self.mlflow_experiment or os.getenv("MLFLOW_EXPERIMENT", "seattle-energy")
+    )
+
+    self.split().feature_engineering().cross_validate().pre_tune()
+    self.fine_tune().train_final()
+
+    kumo_predictor = None
+    if include_kumo:
+        from app.core import kumo_service
+
+        def kumo_predictor(X, target):  # noqa: E731
+            return kumo_service.predict_batch(X, target)
+
+    self.evaluate(kumo_predictor=kumo_predictor)
+
+    with mlflow.start_run(run_name="p5-multitarget"):
+        mlflow.log_params(
+            {
+                "test_size": self.test_size,
+                "seed": self.seed,
+                "cv_splits": self.cv_splits,
             }
-            if kumo_predictor is not None:
-                kumo_pred = np.asarray(
-                    kumo_predictor(self.X_test, target), dtype=float
+        )
+        for target in TARGETS:
+            with mlflow.start_run(run_name=f"catboost-{target}", nested=True):
+                mlflow.log_params(self.best_params[target])
+                log_mlflow_metrics("test", self.metrics[target]["models"]["catboost"])
+                mlflow.log_artifact(
+                    str(self.output_dir / f"{target}.cbm"), artifact_path="models"
                 )
-                km = metrics_reelles(y_true, kumo_pred)
-                block["models"]["kumo"] = {
-                    sanitize_metric_key(k): v for k, v in km.items()
-                }
-            self.metrics[target] = block
-        return self
-
-    @timed("run")
-    def run(self, include_kumo: bool = True) -> dict:
-        """Orchestre toutes les étapes et logue dans MLflow."""
-        mlflow.set_tracking_uri(
-            self.mlflow_tracking_uri
-            or os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
-        )
-        mlflow.set_experiment(
-            self.mlflow_experiment or os.getenv("MLFLOW_EXPERIMENT", "seattle-energy")
-        )
-
-        self.split().feature_engineering().cross_validate().pre_tune()
-        self.fine_tune().train_final()
-
-        kumo_predictor = None
         if include_kumo:
-            from app.core import kumo_service
-
-            def kumo_predictor(X, target):  # noqa: E731
-                return kumo_service.predict_batch(X, target)
-
-        self.evaluate(kumo_predictor=kumo_predictor)
-
-        with mlflow.start_run(run_name="p5-multitarget"):
-            mlflow.log_params(
-                {
-                    "test_size": self.test_size,
-                    "seed": self.seed,
-                    "cv_splits": self.cv_splits,
-                }
-            )
             for target in TARGETS:
-                with mlflow.start_run(run_name=f"catboost-{target}", nested=True):
-                    mlflow.log_params(self.best_params[target])
-                    log_mlflow_metrics(
-                        "test", self.metrics[target]["models"]["catboost"]
-                    )
-                    mlflow.log_artifact(
-                        str(self.output_dir / f"{target}.cbm"), artifact_path="models"
-                    )
-            if include_kumo:
-                for target in TARGETS:
-                    with mlflow.start_run(run_name=f"kumo-{target}", nested=True):
-                        mlflow.log_param("mode", "zero-shot")
-                        log_mlflow_metrics(
-                            "test", self.metrics[target]["models"]["kumo"]
-                        )
+                with mlflow.start_run(run_name=f"kumo-{target}", nested=True):
+                    mlflow.log_param("mode", "zero-shot")
+                    log_mlflow_metrics("test", self.metrics[target]["models"]["kumo"])
 
-            scores_path = self.output_dir / "scores.json"
-            save_json(scores_path, {"targets": self.metrics})
-            mlflow.log_artifact(str(scores_path), artifact_path="models")
-        log.info("run terminé : %s", scores_path)
-        return self.metrics
+        scores_path = self.output_dir / "scores.json"
+        save_json(scores_path, {"targets": self.metrics})
+        mlflow.log_artifact(str(scores_path), artifact_path="models")
+    log.info("run terminé : %s", scores_path)
+    return self.metrics
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1194,13 +1182,17 @@ from app.training.pipeline import TrainPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Entraînement CatBoost multi-cible (P5)")
+    parser = argparse.ArgumentParser(
+        description="Entraînement CatBoost multi-cible (P5)"
+    )
     parser.add_argument("--csv", default=str(dp.DEFAULT_DATASET_PATH))
     parser.add_argument("--output-dir", default="models")
-    parser.add_argument("--download", action="store_true",
-                        help="Télécharge le dataset s'il est absent")
-    parser.add_argument("--no-kumo", action="store_true",
-                        help="N'évalue pas le modèle Kumo")
+    parser.add_argument(
+        "--download", action="store_true", help="Télécharge le dataset s'il est absent"
+    )
+    parser.add_argument(
+        "--no-kumo", action="store_true", help="N'évalue pas le modèle Kumo"
+    )
     parser.add_argument("--cv-splits", type=int, default=5)
     return parser
 
@@ -1317,12 +1309,23 @@ def test_model_service_loads_per_target(tmp_path, monkeypatch):
     model_service._models.clear()
 
     req = EnergyPredictionRequest(
-        BuildingType="Office", PrimaryPropertyType="Office", Neighborhood="BALLARD",
-        Latitude=47.6, Longitude=-122.3, YearBuilt=1990, NumberofBuildings=1,
-        NumberofFloors=4, PropertyGFAParking=100, PropertyGFABuilding=1000,
-        LargestPropertyUseType="Office", SecondLargestPropertyUseType="Retail",
-        SecondLargestPropertyUseTypeGFA=10.0, ThirdLargestPropertyUseType="Parking",
-        ThirdLargestPropertyUseTypeGFA=5.0, Has_NaturalGas=True, Has_Steam=False,
+        BuildingType="Office",
+        PrimaryPropertyType="Office",
+        Neighborhood="BALLARD",
+        Latitude=47.6,
+        Longitude=-122.3,
+        YearBuilt=1990,
+        NumberofBuildings=1,
+        NumberofFloors=4,
+        PropertyGFAParking=100,
+        PropertyGFABuilding=1000,
+        LargestPropertyUseType="Office",
+        SecondLargestPropertyUseType="Retail",
+        SecondLargestPropertyUseTypeGFA=10.0,
+        ThirdLargestPropertyUseType="Parking",
+        ThirdLargestPropertyUseTypeGFA=5.0,
+        Has_NaturalGas=True,
+        Has_Steam=False,
     )
     preds = model_service.predict_all(req)
     assert set(preds) == {"energy", "emissions"}
@@ -1348,7 +1351,12 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor, Pool
 
-from ..schemas.api import CAT_FEATURES, FEATURE_COLUMNS, TARGETS, EnergyPredictionRequest
+from ..schemas.api import (
+    CAT_FEATURES,
+    FEATURE_COLUMNS,
+    TARGETS,
+    EnergyPredictionRequest,
+)
 
 MODEL_PATHS = {
     "energy": os.getenv("MODEL_PATH_ENERGY", "models/energy.cbm"),
@@ -1445,12 +1453,23 @@ from app.core import kumo_service
 from app.schemas.api import EnergyPredictionRequest, TARGETS
 
 SAMPLE_INPUT = EnergyPredictionRequest(
-    BuildingType="Commercial", PrimaryPropertyType="Office", Neighborhood="Ballard",
-    Latitude=47.62, Longitude=-122.35, YearBuilt=1990, NumberofBuildings=1,
-    NumberofFloors=4, PropertyGFAParking=5000, PropertyGFABuilding=15000,
-    LargestPropertyUseType="Office", SecondLargestPropertyUseType="Retail",
-    SecondLargestPropertyUseTypeGFA=3000.0, ThirdLargestPropertyUseType="Parking",
-    ThirdLargestPropertyUseTypeGFA=2000.0, Has_NaturalGas=True, Has_Steam=False,
+    BuildingType="Commercial",
+    PrimaryPropertyType="Office",
+    Neighborhood="Ballard",
+    Latitude=47.62,
+    Longitude=-122.35,
+    YearBuilt=1990,
+    NumberofBuildings=1,
+    NumberofFloors=4,
+    PropertyGFAParking=5000,
+    PropertyGFABuilding=15000,
+    LargestPropertyUseType="Office",
+    SecondLargestPropertyUseType="Retail",
+    SecondLargestPropertyUseTypeGFA=3000.0,
+    ThirdLargestPropertyUseType="Parking",
+    ThirdLargestPropertyUseTypeGFA=2000.0,
+    Has_NaturalGas=True,
+    Has_Steam=False,
 )
 
 
@@ -1554,14 +1573,15 @@ def _to_table(df: pd.DataFrame):
     d = d[FEATURE_COLUMNS]
     for col in [c for c in FEATURE_COLUMNS if c in _CAT]:
         d[col] = d[col].astype(str)
-    return sdm.TableTensor.from_pandas(
-        df=d, stypes=sdm.infer_stypes(d), device=_DEVICE
-    )
+    return sdm.TableTensor.from_pandas(df=d, stypes=sdm.infer_stypes(d), device=_DEVICE)
 
 
 _CAT = [
-    "BuildingType", "PrimaryPropertyType", "Neighborhood",
-    "LargestPropertyUseType", "SecondLargestPropertyUseType",
+    "BuildingType",
+    "PrimaryPropertyType",
+    "Neighborhood",
+    "LargestPropertyUseType",
+    "SecondLargestPropertyUseType",
     "ThirdLargestPropertyUseType",
 ]
 
@@ -1738,12 +1758,19 @@ router = APIRouter(
 )
 
 available_models = [
-    Model(id=1, name="catboost-energy-seattle",
-          created_at=datetime(2026, 1, 1, tzinfo=UTC)),
-    Model(id=2, name="catboost-emissions-seattle",
-          created_at=datetime(2026, 1, 2, tzinfo=UTC)),
-    Model(id=3, name="kumo-tabular-zero-shot",
-          created_at=datetime(2026, 1, 3, tzinfo=UTC)),
+    Model(
+        id=1,
+        name="catboost-energy-seattle",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    ),
+    Model(
+        id=2,
+        name="catboost-emissions-seattle",
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+    ),
+    Model(
+        id=3, name="kumo-tabular-zero-shot", created_at=datetime(2026, 1, 3, tzinfo=UTC)
+    ),
 ]
 
 
@@ -1760,8 +1787,11 @@ async def read_metrics():
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@router.post("/predict", response_model=EnergyPredictionResponse,
-             responses={503: {"description": "Model not loaded"}})
+@router.post(
+    "/predict",
+    response_model=EnergyPredictionResponse,
+    responses={503: {"description": "Model not loaded"}},
+)
 async def write_prediction(payload: EnergyPredictionRequest):
     from starlette.concurrency import run_in_threadpool
 
@@ -1777,8 +1807,11 @@ async def write_prediction(payload: EnergyPredictionRequest):
     )
 
 
-@router.post("/predict/compare", response_model=ComparisonPredictionResponse,
-             responses={503: {"description": "One or both models could not be loaded"}})
+@router.post(
+    "/predict/compare",
+    response_model=ComparisonPredictionResponse,
+    responses={503: {"description": "One or both models could not be loaded"}},
+)
 async def write_comparison(payload: EnergyPredictionRequest):
     from starlette.concurrency import run_in_threadpool
 
@@ -1794,8 +1827,10 @@ async def write_comparison(payload: EnergyPredictionRequest):
 
     def resp(name, energy, emissions):
         return EnergyPredictionResponse(
-            model_name=name, energy_use_kbtu=energy,
-            ghg_emissions_tco2e=emissions, predicted_at=now,
+            model_name=name,
+            energy_use_kbtu=energy,
+            ghg_emissions_tco2e=emissions,
+            predicted_at=now,
         )
 
     return ComparisonPredictionResponse(
