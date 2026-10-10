@@ -11,7 +11,7 @@ import pandas as pd
 from catboost import CatBoostRegressor
 from sklearn.model_selection import KFold, train_test_split
 
-from app.lib.tools import get_logger, metrics_reelles, timed
+from app.lib.tools import ensure_dir, get_logger, metrics_reelles, timed
 from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
 from app.training import data_processing as dp
 
@@ -188,4 +188,83 @@ class TrainPipeline:
                 "l2_leaf_reg": sorted({p["l2_leaf_reg"], p["l2_leaf_reg"] * 2}),
             }
             log.info("pre_tune %s : grille=%s", target, self.pre_tuned_grid[target])
+        return self
+
+    @timed("fine_tune")
+    def fine_tune(self) -> TrainPipeline:
+        """Recherche restreinte ; classe par MedAPE/R2 puis pénalise l'overkill."""
+        self._require_split(require_features=True)
+        if not self.pre_tuned_grid:
+            raise RuntimeError("Appelez pre_tune() avant fine_tune().")
+        for target in dp.TARGETS:
+            y_log = np.log1p(self.Y_train[dp.TARGETS[target]["column"]])
+            X_fit, X_val, y_fit, y_val = train_test_split(
+                self.X_train, y_log, test_size=0.15, random_state=self.seed
+            )
+            candidates = []
+            for params in self._yield_grid(self.pre_tuned_grid[target]):
+                model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
+                m_fit = metrics_reelles(np.expm1(y_fit), np.expm1(model.predict(X_fit)))
+                m_val = metrics_reelles(np.expm1(y_val), np.expm1(model.predict(X_val)))
+                overfit_gap = m_val["R2"] - m_fit["R2"]
+                candidates.append(
+                    {
+                        **params,
+                        "n_trees": model.tree_count_,
+                        "MedAPE_val": m_val["MedAPE_%"],
+                        "R2_val": m_val["R2"],
+                        "overfit_gap": overfit_gap,
+                        # overkill : 1 si dépasse le budget d'arbres, sinon 0
+                        "overkill": int(model.tree_count_ > MAX_TREES_BUDGET),
+                    }
+                )
+                log.info(
+                    "fine_tune %s %s -> MedAPE=%.1f%% trees=%d",
+                    target,
+                    params,
+                    m_val["MedAPE_%"],
+                    model.tree_count_,
+                )
+            # priorité : pas d'overkill, puis MedAPE, puis R2, puis gap
+            candidates.sort(
+                key=lambda c: (
+                    c["overkill"],
+                    c["MedAPE_val"],
+                    -c["R2_val"],
+                    -c["overfit_gap"],
+                )
+            )
+            best = candidates[0]
+            self.best_params[target] = {
+                "iterations": best["iterations"],
+                "learning_rate": best["learning_rate"],
+                "depth": best["depth"],
+                "l2_leaf_reg": best["l2_leaf_reg"],
+                "overfit_gap": best["overfit_gap"],
+                "n_trees": best["n_trees"],
+            }
+        return self
+
+    @timed("train_final")
+    def train_final(self) -> TrainPipeline:
+        """Boucle sur les cibles : refit sur tout le train, sauvegarde un .cbm."""
+        self._require_split(require_features=True)
+        if not self.best_params:
+            raise RuntimeError("Appelez fine_tune() avant train_final().")
+        ensure_dir(self.output_dir)
+        for target in dp.TARGETS:
+            column = dp.TARGETS[target]["column"]
+            y_log = np.log1p(self.Y_train[column])
+            params = {
+                k: self.best_params[target][k]
+                for k in ("iterations", "learning_rate", "depth", "l2_leaf_reg")
+            }
+            X_fit, X_val, y_fit, y_val = train_test_split(
+                self.X_train, y_log, test_size=0.1, random_state=self.seed
+            )
+            model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
+            out = self.output_dir / f"{target}.cbm"
+            model.save_model(str(out))
+            self.models[target] = model
+            log.info("train_final %s -> %s", target, out)
         return self

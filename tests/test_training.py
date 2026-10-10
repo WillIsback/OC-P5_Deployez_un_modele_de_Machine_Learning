@@ -211,3 +211,17 @@ def test_pipeline_cross_validate_and_pre_tune_restrict_grid():
         # le budget "overkill" doit pouvoir mordre : cap > seuil souple
         assert grid["iterations"][0] == COARSE_GRID["iterations"][0]
         assert MAX_TREES_BUDGET < grid["iterations"][0]
+
+
+def test_pipeline_fine_tune_penalizes_overkill_and_trains_final(tmp_path):
+    pipe = TrainPipeline(
+        df_raw=make_synth(160), seed=42, cv_splits=3, output_dir=tmp_path
+    )
+    pipe.split().feature_engineering().cross_validate().pre_tune()
+    pipe.fine_tune().train_final()
+    for target in dp.TARGETS:
+        assert "depth" in pipe.best_params[target]
+        assert "overfit_gap" in pipe.best_params[target]
+        cbm = tmp_path / f"{target}.cbm"
+        assert cbm.exists()
+        assert pipe.models[target] is not None
