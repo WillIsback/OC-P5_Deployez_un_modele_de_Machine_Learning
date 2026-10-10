@@ -35,8 +35,9 @@ def main() -> None:
     args = parser.parse_args()
     try:
         csv_path = dp.ensure_dataset(args.csv, download=args.download)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, RuntimeError) as exc:
         parser.error(str(exc))
+        return
     pipe = TrainPipeline(
         csv_path=csv_path, output_dir=args.output_dir, cv_splits=args.cv_splits
     )

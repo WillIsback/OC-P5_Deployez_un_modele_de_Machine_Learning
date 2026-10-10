@@ -16,18 +16,13 @@ import numpy as np
 from sklearn.metrics import r2_score
 
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
-_configured = False
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure le logging racine une seule fois."""
-    global _configured
-    if _configured:
-        return
+    """Configure le logging racine (idempotent via basicConfig)."""
     logging.basicConfig(level=level, format=_LOG_FORMAT)
-    _configured = True
 
 
 def get_logger(name: str) -> logging.Logger:

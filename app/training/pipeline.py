@@ -35,6 +35,7 @@ COARSE_GRID = {
     "l2_leaf_reg": [3.0, 6.0, 10.0],
 }
 MAX_TREES_BUDGET = 1200  # garde-fou "overkill"
+MEDAPE_KEY = "MedAPE_%"
 
 
 def _candidate_sort_key(c: dict) -> tuple:
@@ -135,9 +136,9 @@ class TrainPipeline:
 
     def _fit_early_stopping(
         self,
-        X_fit: pd.DataFrame,
+        x_fit: pd.DataFrame,
         y_fit_log: pd.Series,
-        X_val: pd.DataFrame,
+        x_val: pd.DataFrame,
         y_val_log: pd.Series,
         params: dict,
     ) -> CatBoostRegressor:
@@ -149,10 +150,10 @@ class TrainPipeline:
             **params,
         )
         model.fit(
-            X_fit,
+            x_fit,
             y_fit_log,
             cat_features=CAT_FEATURES,
-            eval_set=(X_val, y_val_log),
+            eval_set=(x_val, y_val_log),
             use_best_model=True,
         )
         return model
@@ -205,7 +206,7 @@ class TrainPipeline:
                 results.append(
                     {"params": params, "mean": mean, "std": std, "per_fold": per_fold}
                 )
-                log.info("CV %s %s -> MedAPE=%.1f%%", target, params, mean["MedAPE_%"])
+                log.info("CV %s %s -> MedAPE=%.1f%%", target, params, mean[MEDAPE_KEY])
             self.cv_results[target] = results
         return self
 
@@ -215,7 +216,7 @@ class TrainPipeline:
         if not self.cv_results:
             raise RuntimeError("Appelez cross_validate() avant pre_tune().")
         for target, results in self.cv_results.items():
-            best = min(results, key=lambda r: r["mean"]["MedAPE_%"])
+            best = min(results, key=lambda r: r["mean"][MEDAPE_KEY])
             p = best["params"]
             self.pre_tuned_grid[target] = {
                 "iterations": [COARSE_GRID["iterations"][0]],
@@ -239,20 +240,20 @@ class TrainPipeline:
                     "appelez pre_tune()."
                 )
             y_log = np.log1p(self.Y_train[dp.TARGETS[target]["column"]])
-            X_fit, X_val, y_fit, y_val = train_test_split(
+            x_fit, x_val, y_fit, y_val = train_test_split(
                 self.X_train, y_log, test_size=0.15, random_state=self.seed
             )
             candidates = []
             for params in self._yield_grid(self.pre_tuned_grid[target]):
-                model = self._fit_early_stopping(X_fit, y_fit, X_val, y_val, params)
-                m_fit = metrics_reelles(np.expm1(y_fit), np.expm1(model.predict(X_fit)))
-                m_val = metrics_reelles(np.expm1(y_val), np.expm1(model.predict(X_val)))
+                model = self._fit_early_stopping(x_fit, y_fit, x_val, y_val, params)
+                m_fit = metrics_reelles(np.expm1(y_fit), np.expm1(model.predict(x_fit)))
+                m_val = metrics_reelles(np.expm1(y_val), np.expm1(model.predict(x_val)))
                 overfit_gap = m_val["R2"] - m_fit["R2"]
                 candidates.append(
                     {
                         **params,
                         "n_trees": model.tree_count_,
-                        "MedAPE_val": m_val["MedAPE_%"],
+                        "MedAPE_val": m_val[MEDAPE_KEY],
                         "R2_val": m_val["R2"],
                         "overfit_gap": overfit_gap,
                         # overkill : 1 si dépasse le budget d'arbres, sinon 0
@@ -263,7 +264,7 @@ class TrainPipeline:
                     "fine_tune %s %s -> MedAPE=%.1f%% trees=%d",
                     target,
                     params,
-                    m_val["MedAPE_%"],
+                    m_val[MEDAPE_KEY],
                     model.tree_count_,
                 )
             # spec §7 : MedAPE, puis R2 desc, gap desc, puis complexité
@@ -383,7 +384,7 @@ class TrainPipeline:
                     if self.cv_results.get(target):
                         best_cv = min(
                             self.cv_results[target],
-                            key=lambda r: r["mean"]["MedAPE_%"],
+                            key=lambda r: r["mean"][MEDAPE_KEY],
                         )
                         for fold_idx, fold_metrics in enumerate(
                             best_cv["per_fold"], start=1

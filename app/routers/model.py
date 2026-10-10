@@ -42,7 +42,11 @@ async def read_models_list():
     return available_models
 
 
-@router.get("/metrics", response_model=MetricsResponse)
+@router.get(
+    "/metrics",
+    response_model=MetricsResponse,
+    responses={404: {"description": "Metrics file not found"}},
+)
 async def read_metrics():
     try:
         return MetricsResponse(**metrics_service.get_metrics())

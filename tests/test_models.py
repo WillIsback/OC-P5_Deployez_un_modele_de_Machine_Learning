@@ -59,7 +59,8 @@ def test_model_service_loads_per_target(tmp_path, monkeypatch):
 
     preds = model_service.predict_all(_request())
     assert set(preds) == {"energy", "emissions"}
-    assert preds["energy"] > 0 and preds["emissions"] > 0
+    assert preds["energy"] > 0
+    assert preds["emissions"] > 0
     assert preds["energy"] > preds["emissions"] * 5
 
 

@@ -178,8 +178,9 @@ def test_ensure_dataset_downloads_from_file_url(tmp_path):
 def test_ensure_dataset_download_failure_cleans_tmp(tmp_path):
     source = tmp_path / "does_not_exist.csv"
     dest = tmp_path / "nested" / "data.csv"
+    url = source.as_uri()
     with pytest.raises(RuntimeError):
-        dp.ensure_dataset(dest, url=source.as_uri(), download=True)
+        dp.ensure_dataset(dest, url=url, download=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     assert not tmp.exists()
     assert not dest.exists()

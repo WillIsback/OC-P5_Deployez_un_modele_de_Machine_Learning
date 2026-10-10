@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.lib import tools
 
 
-def test_get_logger_is_stable_and_setup_logging_is_idempotent(monkeypatch):
+def test_get_logger_is_stable_and_setup_logging_is_idempotent():
     log1 = tools.get_logger("demo")
     log2 = tools.get_logger("demo")
     assert log1 is log2
@@ -18,7 +18,6 @@ def test_get_logger_is_stable_and_setup_logging_is_idempotent(monkeypatch):
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     root.handlers = []
-    monkeypatch.setattr(tools, "_configured", False)
     try:
         tools.setup_logging()
         tools.setup_logging()

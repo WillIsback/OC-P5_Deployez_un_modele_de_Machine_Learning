@@ -115,9 +115,9 @@ def prepare_dataset(df_raw: pd.DataFrame):
     if missing:
         raise ValueError(f"Colonnes attendues absentes après nettoyage : {missing}")
 
-    X_features = df_clean.drop(columns=TARGET_COLUMNS, errors="ignore")
+    x_features = df_clean.drop(columns=TARGET_COLUMNS, errors="ignore")
     flags = build_flags(df_raw, df_clean)
-    X = prepare_catboost(X_features, flags)
+    X = prepare_catboost(x_features, flags)
     Y = df_clean[TARGET_COLUMNS]
     return X, Y, df_clean
 

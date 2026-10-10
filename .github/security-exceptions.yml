@@ -3,6 +3,27 @@
 # Les exceptions non datées seront rejetées par le workflow de sécurité.
 ---
 exceptions:
+  # Exception documentée : omission volontaire de `uv --no-build`.
+  # `structured-data-models` n'est distribué que via GitHub (git-only, absent de
+  # PyPI) et doit donc être construit. On ne peut pas passer `--no-build`.
+  - cve: S8541
+    reason: >-
+      `--no-build` est volontairement omis : la dépendance `structured-data-models`
+      n'existe que sur GitHub (pas sur PyPI) et doit être buildée à l'installation.
+      Les workflows et le Dockerfile sont déjà couverts par actionlint, zizmor et
+      Trivy config.
+    expires: "2026-04-10"
+    author: "WillIsback"
+    path: ".github/workflows/*"
+  - cve: S8541
+    reason: >-
+      `--no-build` est volontairement omis : la dépendance `structured-data-models`
+      n'existe que sur GitHub (pas sur PyPI) et doit être buildée à l'installation.
+      Le Dockerfile est déjà couvert par Trivy config.
+    expires: "2026-04-10"
+    author: "WillIsback"
+    path: "Dockerfile"
+  #
   #- cve: CVE-2024-XXXXX
   #  reason: "Fausse positive, ne s'applique pas à notre contexte (lib non utilisée)"
   #  expires: "2025-06-01"

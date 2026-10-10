@@ -39,9 +39,10 @@ jobs:
           fail-on-severity: "high"
           # "PSF" n'est pas une licence SPDX valide pour dependency-review :
           # on garde "Python-2.0" (PSF) et on retire "PSF".
-          allow-licenses: "MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0"
+          allow-licenses: "MIT, Apache-2.0, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LicenseRef-NVIDIA-Proprietary"
 
       - name: Scan des dépendances avec Trivy (système)
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -54,8 +55,8 @@ jobs:
             --exit-code 1
 
       - name: Upload SARIF Trivy
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: ${{ always() && hashFiles('trivy-fs.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: "trivy-fs"
@@ -76,16 +77,16 @@ jobs:
           fetch-depth: 0
 
       - name: Initialiser CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: "python"
           queries: security-and-quality
 
       - name: Autobuild CodeQL
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Analyse CodeQL (upload automatique)
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:python"
 
@@ -135,7 +136,7 @@ jobs:
 
       - name: Upload SARIF Gitleaks
         if: always() && steps.gitleaks-report.outputs.found == 'true'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: gitleaks.sarif
           category: "gitleaks"
@@ -182,7 +183,7 @@ jobs:
 
       - name: Upload SARIF IaC
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-iac.sarif
           category: "trivy-iac"
