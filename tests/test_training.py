@@ -344,6 +344,8 @@ def test_pipeline_run_logs_mlflow_without_kumo(tmp_path, monkeypatch):
         run = by_name[name]
         assert run.data.tags.get("mlflow.parentRunId") == parent.info.run_id
         assert any(k.startswith("test_") for k in run.data.metrics)
+        # spec §8 : métriques CV (mean/std) loguées sur le run catboost
+        assert any(k.startswith("cv_train_") for k in run.data.metrics)
 
     # artefacts modèles listés (fichiers .cbm sur chaque run catboost)
     cbm_artifacts = set()

@@ -380,6 +380,24 @@ class TrainPipeline:
             for target in dp.TARGETS:
                 with mlflow.start_run(run_name=f"catboost-{target}", nested=True):
                     mlflow.log_params(self.best_params[target])
+                    if self.cv_results.get(target):
+                        best_cv = min(
+                            self.cv_results[target],
+                            key=lambda r: r["mean"]["MedAPE_%"],
+                        )
+                        for fold_idx, fold_metrics in enumerate(
+                            best_cv["per_fold"], start=1
+                        ):
+                            mlflow.log_metrics(
+                                {
+                                    f"cv_fold{fold_idx}_{sanitize_metric_key(name)}": float(
+                                        v
+                                    )
+                                    for name, v in fold_metrics.items()
+                                }
+                            )
+                        log_mlflow_metrics("cv_train", best_cv["mean"])
+                        log_mlflow_metrics("cv_train_std", best_cv["std"])
                     log_mlflow_metrics(
                         "test", self.metrics[target]["models"]["catboost"]
                     )
