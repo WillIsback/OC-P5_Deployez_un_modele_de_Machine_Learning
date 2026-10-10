@@ -1,0 +1,27 @@
+# Image de base : dépendances précompilées (CPU-only) + utilisateur non-root.
+# Publiée sur GHCR par .github/workflows/base-image.yml ; le Dockerfile applicatif
+# en dérive (FROM), ce qui rend le build de l'app quasi instantané.
+FROM python:3.12-slim
+
+# Install uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Create a non-root user
+RUN groupadd --system --gid 1001 appuser \
+    && useradd --system --uid 1001 --gid 1001 --no-create-home --home-dir /app appuser
+
+# Create app directory with proper ownership
+WORKDIR /app
+
+# Copier uniquement les manifestes : ce layer (deps) n'est invalidé que si les
+# dépendances changent, pas à chaque modification du code applicatif.
+COPY pyproject.toml uv.lock ./
+
+# Installer git (requis par uv pour la dépendance git structured-data-models),
+# puis les dépendances applicatives, puis purger git.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && uv sync --frozen --no-cache --no-install-project \
+    && apt-get purge -y git \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R appuser:appuser /app

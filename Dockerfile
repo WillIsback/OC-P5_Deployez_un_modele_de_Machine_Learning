@@ -1,27 +1,13 @@
-FROM python:3.12-slim
+# Image applicative : dérive de l'image de base (dépendances précompilées) et
+# n'ajoute que le code de l'application. Le build est donc très rapide.
+ARG BASE_IMAGE=ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning-base:latest
+FROM ${BASE_IMAGE}
 
-# Install uv.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Create a non-root user
-RUN groupadd --system --gid 1001 appuser \
-    && useradd --system --uid 1001 --gid 1001 --no-create-home --home-dir /app appuser
-
-# Create app directory with proper ownership
 WORKDIR /app
 
-# Copy only the application files (not .venv, .git, etc.)
-COPY pyproject.toml uv.lock ./
+# Copier le code applicatif (les deps sont déjà dans /app/.venv via l'image de base).
 COPY app/ ./app/
-
-# Installer git (requis par uv pour la dépendance git structured-data-models),
-# puis les dépendances applicatives.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && uv sync --frozen --no-cache --no-install-project \
-    && apt-get purge -y git \
-    && rm -rf /var/lib/apt/lists/* \
-    && chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app/app
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
