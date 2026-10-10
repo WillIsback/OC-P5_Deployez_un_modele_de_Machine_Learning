@@ -177,3 +177,18 @@ def test_ensure_dataset_download_failure_cleans_tmp(tmp_path):
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     assert not tmp.exists()
     assert not dest.exists()
+
+
+from app.training.pipeline import TrainPipeline
+
+
+def test_pipeline_split_then_feature_engineering():
+    pipe = TrainPipeline(df_raw=make_synth(200), seed=42, test_size=0.25)
+    pipe.split()
+    pipe.feature_engineering()
+    assert len(pipe.idx_train) + len(pipe.idx_test) == len(pipe.df_clean)
+    assert len(pipe.X_train) == len(pipe.Y_train) == len(pipe.idx_train)
+    assert list(pipe.X_train.columns) == dp.FEATURE_COLUMNS
+    assert set(pipe.Y_train.columns) == {"SiteEnergyUse(kBtu)", "TotalGHGEmissions"}
+    # pas de fuite : le test n'a pas été vu à l'ajustement
+    assert set(pipe.idx_train).isdisjoint(set(pipe.idx_test))
