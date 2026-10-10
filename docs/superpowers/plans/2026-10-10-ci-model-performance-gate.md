@@ -106,9 +106,7 @@ from app.training.score_validation import validate_scores
 
 def _scores(energy=(0.30, 40.0), emissions=(0.15, 45.0)):
     def block(r2, medape):
-        return {
-            "catboost": {"R2": r2, "MAE": 2.0, "MedAE": 1.0, "MedAPE_pct": medape}
-        }
+        return {"catboost": {"R2": r2, "MAE": 2.0, "MedAE": 1.0, "MedAPE_pct": medape}}
 
     return {
         "targets": {
