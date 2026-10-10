@@ -155,10 +155,9 @@ logue les runs MLflow (`uv run mlflow ui`). Sorties : `models/<cible>.cbm` et
 ### Suivi d'expérimentation avec MLflow
 
 L'entraînement (`app.training`) journalise automatiquement chaque run dans **MLflow** :
-- **Hyper-paramètres** retenus + métadonnées (target, nb features, split).
-- **Scores CV sur le jeu d'entraînement** : moyenne, écart-type et valeurs par pli (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`).
-- **Évaluation sur le test** : `test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`.
-- **Artefact** du modèle `.cbm`.
+- **Run parent `p5-multitarget`** : paramètres `test_size`, `seed`, `cv_splits` ; artefacts `scores.json` / `scores.csv`.
+- **Run imbriqué par cible `catboost-<cible>`** : meilleurs hyper-paramètres, scores CV sur l'entraînement (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`), évaluation sur le test (`test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`) et artefact du modèle `.cbm`.
+- **Run imbriqué par cible `kumo-<cible>`** : évaluation Kumo-Tabular en zero-shot (`test_*`).
 
 Configurable par variables d'environnement :
 ```bash
