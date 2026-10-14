@@ -1,11 +1,16 @@
 """Fixtures PostgreSQL partagées (base `p5_test`, rôles `p5test_*`)."""
 
+import json
 import os
 import sys
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import psycopg
 import pytest
+from catboost import CatBoostRegressor
+from fastapi.testclient import TestClient
 from psycopg import sql
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
@@ -13,8 +18,10 @@ from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core import metrics_service, model_service
 from app.db import create_db
 from app.db import session as db_session
+from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
 
 ADMIN_URL = os.getenv("TEST_DATABASE_ADMIN_URL") or (
     "postgresql+psycopg://postgres:"
@@ -85,3 +92,121 @@ def db(owner_engine, monkeypatch):
     finally:
         trans.rollback()
         conn.close()
+
+
+def train_demo_model(path: str, base: float) -> None:
+    """Entraîne un petit CatBoost sur données synthétiques (layout Seattle)."""
+    rng = np.random.default_rng(0)
+    n = 120
+    df = pd.DataFrame(
+        {
+            "BuildingType": rng.choice(
+                ["Commercial", "Office", "Warehouse", "Industrial"], n
+            ),
+            "PrimaryPropertyType": rng.choice(
+                ["Office", "Retail", "Warehouse/Storage", "Service"], n
+            ),
+            "Neighborhood": rng.choice(["BALLARD", "DOWNTOWN", "FREMONT"], n),
+            "Latitude": rng.uniform(47.5, 47.7, n),
+            "Longitude": rng.uniform(-122.4, -122.25, n),
+            "YearBuilt": rng.integers(1930, 2020, n),
+            "NumberofBuildings": rng.integers(1, 3, n).astype(float),
+            "NumberofFloors": rng.integers(1, 8, n),
+            "PropertyGFAParking": rng.integers(0, 20000, n),
+            "PropertyGFABuilding(s)": rng.integers(500, 40000, n),
+            "LargestPropertyUseType": rng.choice(
+                ["Office", "Retail", "Warehouse", "Parking"], n
+            ),
+            "SecondLargestPropertyUseType": rng.choice(["Retail", "Service"], n),
+            "SecondLargestPropertyUseTypeGFA": rng.uniform(0, 12000, n),
+            "ThirdLargestPropertyUseType": rng.choice(["Parking", "Service"], n),
+            "ThirdLargestPropertyUseTypeGFA": rng.uniform(0, 8000, n),
+            "Has_NaturalGas": rng.integers(0, 2, n),
+            "Has_Steam": rng.integers(0, 2, n),
+        }
+    )
+    for col in CAT_FEATURES:
+        df[col] = df[col].astype(str)
+    X = df[FEATURE_COLUMNS]
+    y_log = np.log1p(base + 3.0 * df["PropertyGFABuilding(s)"])
+    model = CatBoostRegressor(iterations=60, depth=4, random_seed=42, verbose=0)
+    model.fit(X, y_log, cat_features=CAT_FEATURES)
+    model.save_model(path)
+
+
+_SCORES = {
+    "targets": {
+        "energy": {
+            "unit": "kBtu/an",
+            "models": {
+                "catboost": {
+                    "R2": 0.91,
+                    "MAE": 1200.0,
+                    "MedAE": 800.0,
+                    "MedAPE_pct": 5.2,
+                },
+                "kumo": {
+                    "R2": 0.55,
+                    "MAE": 3400.0,
+                    "MedAE": 2100.0,
+                    "MedAPE_pct": 14.7,
+                },
+            },
+        },
+        "emissions": {
+            "unit": "t CO2e/an",
+            "models": {
+                "catboost": {
+                    "R2": 0.86,
+                    "MAE": 2.4,
+                    "MedAE": 1.6,
+                    "MedAPE_pct": 6.1,
+                },
+                "kumo": {
+                    "R2": 0.42,
+                    "MAE": 5.8,
+                    "MedAE": 4.1,
+                    "MedAPE_pct": 19.3,
+                },
+            },
+        },
+    }
+}
+
+
+@pytest.fixture
+def demo_models(tmp_path, monkeypatch):
+    energy = tmp_path / "energy.cbm"
+    emissions = tmp_path / "emissions.cbm"
+    train_demo_model(str(energy), base=30000.0)
+    train_demo_model(str(emissions), base=50.0)
+    monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(energy))
+    monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(emissions))
+    monkeypatch.setattr(model_service, "_models", {})
+    scores = tmp_path / "scores.json"
+    scores.write_text(json.dumps(_SCORES))
+    monkeypatch.setattr(metrics_service, "METRICS_PATH", str(scores))
+    monkeypatch.setattr(metrics_service, "_metrics", None)
+    yield
+
+
+@pytest.fixture
+def client(db):
+    from app.main import app
+
+    return TestClient(app)
+
+
+def login(client, username: str, password: str):
+    return client.post(
+        "/token",
+        data={"username": username, "password": password},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+
+@pytest.fixture
+def auth_headers(client):
+    r = login(client, "johndoe", "secret")
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}

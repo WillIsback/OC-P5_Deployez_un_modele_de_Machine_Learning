@@ -1,282 +1,78 @@
-"""Functional test of the Bearer-JWT authentication + CatBoost prediction."""
+"""Authentification JWT sur la table users (sub = id)."""
 
-import json
-import sys
-from pathlib import Path
+from datetime import timedelta
 
-import numpy as np
-import pandas as pd
+import jwt
 import pytest
-from catboost import CatBoostRegressor
-from fastapi.testclient import TestClient
+from conftest import login
+from sqlalchemy import select
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.core.security import ALGORITHM, SECRET_KEY, create_access_token
+from app.db.models import User
 
-
-from app.core import metrics_service, model_service
-from app.main import app
-from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS
-
-client = TestClient(app)
+pytestmark = pytest.mark.db
 
 
-def train_demo_model(path: str, base: float) -> None:
-    """Entraîne un petit CatBoost sur données synthétiques (layout Seattle)."""
-    rng = np.random.default_rng(0)
-    n = 120
-    df = pd.DataFrame(
-        {
-            "BuildingType": rng.choice(
-                ["Commercial", "Office", "Warehouse", "Industrial"], n
-            ),
-            "PrimaryPropertyType": rng.choice(
-                ["Office", "Retail", "Warehouse/Storage", "Service"], n
-            ),
-            "Neighborhood": rng.choice(["BALLARD", "DOWNTOWN", "FREMONT"], n),
-            "Latitude": rng.uniform(47.5, 47.7, n),
-            "Longitude": rng.uniform(-122.4, -122.25, n),
-            "YearBuilt": rng.integers(1930, 2020, n),
-            "NumberofBuildings": rng.integers(1, 3, n).astype(float),
-            "NumberofFloors": rng.integers(1, 8, n),
-            "PropertyGFAParking": rng.integers(0, 20000, n),
-            "PropertyGFABuilding(s)": rng.integers(500, 40000, n),
-            "LargestPropertyUseType": rng.choice(
-                ["Office", "Retail", "Warehouse", "Parking"], n
-            ),
-            "SecondLargestPropertyUseType": rng.choice(["Retail", "Service"], n),
-            "SecondLargestPropertyUseTypeGFA": rng.uniform(0, 12000, n),
-            "ThirdLargestPropertyUseType": rng.choice(["Parking", "Service"], n),
-            "ThirdLargestPropertyUseTypeGFA": rng.uniform(0, 8000, n),
-            "Has_NaturalGas": rng.integers(0, 2, n),
-            "Has_Steam": rng.integers(0, 2, n),
-        }
-    )
-    for col in CAT_FEATURES:
-        df[col] = df[col].astype(str)
-    X = df[FEATURE_COLUMNS]
-    y_log = np.log1p(base + 3.0 * df["PropertyGFABuilding(s)"])
-    model = CatBoostRegressor(iterations=60, depth=4, random_seed=42, verbose=0)
-    model.fit(X, y_log, cat_features=CAT_FEATURES)
-    model.save_model(path)
+def _johndoe_id(db) -> int:
+    with db() as s:
+        return s.scalar(select(User.id).where(User.username == "johndoe"))
 
 
-_SCORES = {
-    "targets": {
-        "energy": {
-            "unit": "kBtu/an",
-            "models": {
-                "catboost": {
-                    "R2": 0.91,
-                    "MAE": 1200.0,
-                    "MedAE": 800.0,
-                    "MedAPE_pct": 5.2,
-                },
-                "kumo": {
-                    "R2": 0.55,
-                    "MAE": 3400.0,
-                    "MedAE": 2100.0,
-                    "MedAPE_pct": 14.7,
-                },
-            },
-        },
-        "emissions": {
-            "unit": "t CO2e/an",
-            "models": {
-                "catboost": {
-                    "R2": 0.86,
-                    "MAE": 2.4,
-                    "MedAE": 1.6,
-                    "MedAPE_pct": 6.1,
-                },
-                "kumo": {
-                    "R2": 0.42,
-                    "MAE": 5.8,
-                    "MedAE": 4.1,
-                    "MedAPE_pct": 19.3,
-                },
-            },
-        },
-    }
-}
-
-
-@pytest.fixture(autouse=True)
-def _isolated_models(tmp_path, monkeypatch):
-    energy = tmp_path / "energy.cbm"
-    emissions = tmp_path / "emissions.cbm"
-    train_demo_model(str(energy), base=30000.0)
-    train_demo_model(str(emissions), base=50.0)
-    monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(energy))
-    monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(emissions))
-    monkeypatch.setattr(model_service, "_models", {})
-    scores = tmp_path / "scores.json"
-    scores.write_text(json.dumps(_SCORES))
-    monkeypatch.setattr(metrics_service, "METRICS_PATH", str(scores))
-    monkeypatch.setattr(metrics_service, "_metrics", None)
-    yield
-
-
-def login(username: str, password: str) -> str:
-    r = client.post(
-        "/token",
-        data={"username": username, "password": password},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+def test_token_sub_is_user_id(client, db):
+    r = login(client, "johndoe", "secret")
     assert r.status_code == 200, r.text
-    return r.json()["access_token"]
+    payload = jwt.decode(r.json()["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+    assert payload["sub"] == str(_johndoe_id(db))
 
 
-def test_token_endpoint_ok() -> str:
-    token = login("johndoe", "secret")
-    assert token
-    return token
+def test_wrong_password(client):
+    assert login(client, "johndoe", "wrong").status_code == 400
 
 
-def test_wrong_password():
-    r = client.post(
-        "/token",
-        data={"username": "johndoe", "password": "wrong"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    assert r.status_code == 400, r.text
+def test_unknown_user(client):
+    assert login(client, "nobody", "secret").status_code == 400
 
 
-EXAMPLE_PAYLOAD = {
-    "BuildingType": "Commercial",
-    "PrimaryPropertyType": "Office",
-    "Neighborhood": "Ballard",
-    "Latitude": 47.62,
-    "Longitude": -122.35,
-    "YearBuilt": 1990,
-    "NumberofBuildings": 1,
-    "NumberofFloors": 4,
-    "PropertyGFAParking": 5000,
-    "PropertyGFABuilding": 15000,
-    "LargestPropertyUseType": "Office",
-    "SecondLargestPropertyUseType": "Retail",
-    "SecondLargestPropertyUseTypeGFA": 3000,
-    "ThirdLargestPropertyUseType": "Parking",
-    "ThirdLargestPropertyUseTypeGFA": 2000,
-    "Has_NaturalGas": True,
-    "Has_Steam": False,
-}
+def test_inactive_user_cannot_login(client):
+    assert login(client, "alice", "secret").status_code == 400
 
 
-def test_model_list_requires_token():
-    r = client.get("/model/list")
-    assert r.status_code == 401, r.text
+def test_list_requires_token(client):
+    assert client.get("/model/list").status_code == 401
 
 
-def test_model_list_with_token():
-    token = test_token_endpoint_ok()
+def test_list_with_token(client, auth_headers):
+    r = client.get("/model/list", headers=auth_headers)
+    assert r.status_code == 200, r.text
+
+
+def test_bare_token_accepted(client, auth_headers):
+    bare = auth_headers["Authorization"].removeprefix("Bearer ")
+    assert client.get("/model/list", headers={"Authorization": bare}).status_code == 200
+
+
+def test_token_with_non_numeric_sub_rejected(client):
+    token = create_access_token({"sub": "johndoe"})
     r = client.get("/model/list", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 200, r.text
-    models = r.json()
-    assert len(models) == 3
-    assert models[0]["name"] == "catboost-energy-seattle"
-    assert models[1]["name"] == "catboost-emissions-seattle"
-    assert models[2]["name"] == "kumo-tabular-zero-shot"
+    assert r.status_code == 401
 
 
-def test_model_predict_with_token():
-    token = test_token_endpoint_ok()
-    r = client.post(
-        "/model/predict",
-        json=EXAMPLE_PAYLOAD,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["energy_use_kbtu"] > 0
-    assert body["ghg_emissions_tco2e"] > 0
-    assert body["units"] == "kBtu/an"
-    assert "model_name" in body
+def test_token_of_deleted_user_rejected(client, db):
+    with db() as s:
+        user = User(username="ephemere", hashed_password="x", is_active=True)
+        s.add(user)
+        s.commit()
+        token = create_access_token(
+            {"sub": str(user.id)}, expires_delta=timedelta(minutes=5)
+        )
+        s.delete(user)
+        s.commit()
+    r = client.get("/model/list", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
 
 
-def test_model_list_with_bare_token():
-    # Tolerates a token pasted with no "Bearer " prefix (some Swagger UI
-    # versions do not add it automatically).
-    token = test_token_endpoint_ok()
-    r = client.get("/model/list", headers={"Authorization": token})
-    assert r.status_code == 200, r.text
-
-
-def test_model_predict_requires_token():
-    r = client.post("/model/predict", json=EXAMPLE_PAYLOAD)
-    assert r.status_code == 401, r.text
-
-
-def test_model_predict_rejects_extra_field():
-    token = test_token_endpoint_ok()
-    bad = dict(EXAMPLE_PAYLOAD, extra_field="nope")
-    r = client.post(
-        "/model/predict",
-        json=bad,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 422, r.text
-
-
-def test_metrics_requires_token():
-    r = client.get("/model/metrics")
-    assert r.status_code == 401, r.text
-
-
-def test_metrics_with_token():
-    token = test_token_endpoint_ok()
-    r = client.get(
-        "/model/metrics",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert "targets" in body
-    energy = body["targets"]["energy"]
-    assert energy["unit"] == "kBtu/an"
-    cb = energy["models"]["catboost"]
-    assert isinstance(cb["R2"], float)
-    assert cb["MAE"] > 0
-    assert cb["MedAE"] > 0
-    assert cb["MedAPE_pct"] > 0
-    assert "kumo" in energy["models"]
-    assert body["targets"]["emissions"]["unit"] == "t CO2e/an"
-
-
-def test_compare_requires_token():
-    r = client.post("/model/predict/compare", json=EXAMPLE_PAYLOAD)
-    assert r.status_code == 401, r.text
-
-
-def test_compare_with_token():
-    token = test_token_endpoint_ok()
-    r = client.post(
-        "/model/predict/compare",
-        json=EXAMPLE_PAYLOAD,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert "catboost_prediction" in body
-    assert "kumo_prediction" in body
-    assert "comparison_note" in body
-    # CatBoost prediction
-    cb = body["catboost_prediction"]
-    assert cb["energy_use_kbtu"] > 0
-    assert cb["ghg_emissions_tco2e"] > 0
-    assert "model_name" in cb
-    # Kumo-Tabular prediction
-    km = body["kumo_prediction"]
-    assert km["energy_use_kbtu"] > 0
-    assert km["ghg_emissions_tco2e"] > 0
-    assert km["model_name"] == "kumo-tabular-zero-shot"
-
-
-def test_compare_rejects_extra_field():
-    token = test_token_endpoint_ok()
-    bad = dict(EXAMPLE_PAYLOAD, extra_field="nope")
-    r = client.post(
-        "/model/predict/compare",
-        json=bad,
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 422, r.text
+def test_token_of_deactivated_user_rejected(client, db, auth_headers):
+    with db() as s:
+        s.get(User, _johndoe_id(db)).is_active = False
+        s.commit()
+    assert client.get("/model/list", headers=auth_headers).status_code == 401
