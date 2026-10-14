@@ -5,17 +5,19 @@ description = "Cette mission suit un scénario de projet professionnel. Déploye
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.13",
     "catboost>=1.2.10",
     "fastapi[standard]>=0.143.0",
     "mlflow>=3.17.0",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
+    "psycopg[binary]>=3.2",
     "pwdlib[argon2]>=0.3.1",
     "pyjwt>=2.15.1",
     "python-dotenv>=1.2.4",
     "ruff>=0.16.10",
     "scikit-learn>=1.9.1",
-    "sqlmodel>=0.0.48",
+    "sqlalchemy>=2.0",
     "structured-data-models",
     "torch",
 ]
@@ -28,11 +30,14 @@ dev = [
 ]
 
 [tool.coverage.run]
-# Scaffolding pré-existant non utilisé par l'application FastAPI
 omit = [
-    "app/core/database_service.py",
-    "app/schemas/database.py",
     "app/internal/*",
+    "app/db/migrations/*",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "db: nécessite un PostgreSQL de test (TEST_DATABASE_ADMIN_URL)",
 ]
 
 [tool.uv.sources]
