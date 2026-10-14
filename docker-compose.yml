@@ -13,5 +13,41 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
+      DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD}@db:5432/p5
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./models:/app/models:ro
+
+  # Outillage (non démarré par `up`) : provisionnement, ingestion, préparation,
+  # évaluation, entraînement. Seul ce service reçoit les identifiants
+  # admin/propriétaire (jamais le service `api`).
+  tools:
+    build: .
+    profiles: ["tools"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      DATABASE_OWNER_URL: postgresql+psycopg://p5_owner:${P5_OWNER_PASSWORD}@db:5432/p5
+      MLFLOW_TRACKING_URI: postgresql+psycopg://p5_mlflow:${P5_MLFLOW_PASSWORD}@db:5432/mlflow
+      P5_OWNER_PASSWORD: ${P5_OWNER_PASSWORD}
+      P5_API_PASSWORD: ${P5_API_PASSWORD}
+      P5_MLFLOW_PASSWORD: ${P5_MLFLOW_PASSWORD}
+      TRAINING_YEAR: ${TRAINING_YEAR:-2016}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+      # Écriture : l'entraînement produit models/*.cbm et models/scores.json.
+      - ./models:/app/models
+
 volumes:
   pgdata:
