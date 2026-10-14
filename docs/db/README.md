@@ -164,7 +164,7 @@ docker compose exec -T db psql -U postgres -d p5 -c "SELECT path, status_code, u
 
 La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
 
-Si `docker compose build` échoue faute de nouvelles dépendances dans l'image de base publiée sur GHCR, construire la base localement : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`. L'image `:base` devra alors être republiée par le workflow `base-image.yml`.
+**Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`. **Avant le merge**, republier `:base` en lançant manuellement le workflow `base-image.yml` (`workflow_dispatch`) ; le workflow `release.yml` exécute un smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) qui fait échouer la release plutôt que de publier une image cassée.
 
 ### Entraînement, évaluation et DDL
 
