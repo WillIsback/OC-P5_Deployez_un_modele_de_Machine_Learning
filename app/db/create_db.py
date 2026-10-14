@@ -1,10 +1,14 @@
 """Provisionnement idempotent de PostgreSQL (spec §5.3).
 
-Usage : ``uv run python -m app.db.create_db`` (ou via le service Compose ``tools``).
+Usage : ``uv run python -m app.db.create_db [--demo-users]`` (ou via le service
+Compose ``tools``). Les comptes de démonstration (johndoe/secret) ne sont créés
+que sur demande : ``--demo-users`` ou ``P5_SEED_DEMO_USERS=1``. À désactiver en
+production.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,9 +123,9 @@ def _apply_grants(admin_url: str, db_name: str, roles: Roles) -> None:
             conn.execute(sql.SQL(stmt).format(api=sql.Identifier(roles.api)))
 
 
-def seed(session: Session) -> None:
-    """Utilisateurs de démo (hash calculé à l'exécution) et modèles initiaux."""
-    for user in DEMO_USERS:
+def seed(session: Session, *, demo_users: bool = False) -> None:
+    """Modèles initiaux et, sur demande, utilisateurs de démo (hash à l'exécution)."""
+    for user in DEMO_USERS if demo_users else ():
         if session.scalar(select(User).where(User.username == user["username"])):
             continue
         session.add(User(**user, hashed_password=get_password_hash("secret")))
@@ -143,8 +147,13 @@ def provision(
     db_name: str = "p5",
     mlflow_db: str = "mlflow",
     role_prefix: str = "p5",
+    demo_users: bool = False,
 ) -> str:
-    """Crée rôles et bases, migre, applique les droits, seed. Retourne l'URL owner."""
+    """Crée rôles et bases, migre, applique les droits, seed. Retourne l'URL owner.
+
+    ``demo_users`` crée les comptes de démonstration (mot de passe connu) : jamais
+    en production.
+    """
     roles = Roles.with_prefix(role_prefix)
     with psycopg.connect(dsn(admin_url), autocommit=True) as conn:
         _ensure_role(conn, roles.owner, passwords["owner"])
@@ -162,20 +171,37 @@ def provision(
     engine = create_engine(owner_url)
     try:
         with Session(engine) as session:
-            seed(session)
+            seed(session, demo_users=demo_users)
     finally:
         engine.dispose()
     log.info("Base %s provisionnée (rôles %s_*)", db_name, role_prefix)
     return owner_url
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Provisionnement PostgreSQL (P5)")
+    parser.add_argument(
+        "--demo-users",
+        action="store_true",
+        help="Crée les comptes de démo johndoe/alice (mot de passe « secret ») ; "
+        "équivaut à P5_SEED_DEMO_USERS=1. À ne jamais utiliser en production.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    demo_users = args.demo_users or os.getenv("P5_SEED_DEMO_USERS") == "1"
     passwords = {
         "owner": os.environ["P5_OWNER_PASSWORD"],
         "api": os.environ["P5_API_PASSWORD"],
         "mlflow": os.environ["P5_MLFLOW_PASSWORD"],
     }
-    provision(os.environ["DATABASE_ADMIN_URL"], passwords=passwords)
+    provision(
+        os.environ["DATABASE_ADMIN_URL"], passwords=passwords, demo_users=demo_users
+    )
+    if demo_users:
+        print("[create_db] comptes de démo créés (johndoe/secret) : pas en production")
     print("[create_db] base p5 et base mlflow prêtes")
 
 

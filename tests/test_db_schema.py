@@ -3,7 +3,7 @@
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 from synth import EXAMPLE_FEATURES, add_record
@@ -50,6 +50,42 @@ def test_seed_users_and_models(db):
         assert active_model(s, CATBOOST_NAME).version == "baseline"
 
 
+def test_seed_without_demo_users_keeps_models(db):
+    with db() as s:
+        s.execute(delete(User))
+        create_db.seed(s, demo_users=False)
+        assert s.scalar(select(func.count()).select_from(User)) == 0
+        assert active_model(s, CATBOOST_NAME) is not None
+
+
+@pytest.mark.parametrize(
+    ("argv", "env", "expected"),
+    [
+        ([], None, False),
+        ([], "0", False),
+        ([], "1", True),
+        (["--demo-users"], None, True),
+    ],
+)
+def test_create_db_main_demo_users_opt_in(monkeypatch, argv, env, expected):
+    calls = {}
+
+    def fake_provision(admin_url, **kwargs):
+        calls.update(kwargs)
+        return admin_url
+
+    for var in ("P5_OWNER_PASSWORD", "P5_API_PASSWORD", "P5_MLFLOW_PASSWORD"):
+        monkeypatch.setenv(var, "x")
+    monkeypatch.setenv("DATABASE_ADMIN_URL", "postgresql+psycopg://u:p@h/db")
+    if env is None:
+        monkeypatch.delenv("P5_SEED_DEMO_USERS", raising=False)
+    else:
+        monkeypatch.setenv("P5_SEED_DEMO_USERS", env)
+    monkeypatch.setattr(create_db, "provision", fake_provision)
+    create_db.main(argv)
+    assert calls["demo_users"] is expected
+
+
 def test_provision_is_idempotent(provisioned_db):
     from conftest import ADMIN_URL, TEST_DB, TEST_MLFLOW_DB, TEST_PASSWORDS, TEST_PREFIX
 
@@ -59,6 +95,7 @@ def test_provision_is_idempotent(provisioned_db):
         db_name=TEST_DB,
         mlflow_db=TEST_MLFLOW_DB,
         role_prefix=TEST_PREFIX,
+        demo_users=True,
     )
     engine = create_engine(provisioned_db["owner_url"])
     with Session(engine) as s:

@@ -117,6 +117,8 @@ docker compose run --rm tools python -m app.db.prepare --year 2016
 docker compose up -d api             # API sur http://localhost:8080
 ```
 
+Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
+
 Le service `tools` (profil Compose, non démarré par `up`) est le seul à recevoir les identifiants administrateur et propriétaire ; le service `api` n'utilise que le rôle restreint `p5_api`. Les CSV 2017–2019 doivent être déposés dans `data/` et `YEAR_COLUMN_RENAMES` complété dans `app/db/ingest.py` avant ingestion (voir `docs/db/README.md`).
 
 ---

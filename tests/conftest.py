@@ -61,6 +61,7 @@ def provisioned_db():
         db_name=TEST_DB,
         mlflow_db=TEST_MLFLOW_DB,
         role_prefix=TEST_PREFIX,
+        demo_users=True,  # johndoe/secret, utilisé par les tests d'API
     )
     api_url = (
         make_url(owner_url)
