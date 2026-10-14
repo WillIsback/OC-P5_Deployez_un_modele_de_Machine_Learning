@@ -1,8 +1,8 @@
 # P5 — Déployez un modèle de Machine Learning
 
-**Auteur** : William Derue  
-**Formation** : [AI Engineer](https://openclassrooms.com/fr/paths/1011-ai-engineer) — OpenClassrooms  
-**Projet** : 5 — Déployez un modèle de Machine Learning  
+**Auteur** : William Derue
+**Formation** : [AI Engineer](https://openclassrooms.com/fr/paths/1011-ai-engineer) — OpenClassrooms
+**Projet** : 5 — Déployez un modèle de Machine Learning
 **Date** : 2026
 
 ---
@@ -133,6 +133,96 @@ curl -X POST http://localhost:8000/model/predict \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"BuildingType":"Commercial","PrimaryPropertyType":"Office","Neighborhood":"Ballard","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
+```
+
+### Trois exemples réels postérieurs à l'entraînement (DataYear > 2016)
+
+Les exemples ci-dessous proviennent du jeu [Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e), filtré sur `DataYear > 2016`. Ce champ sert à sélectionner les enregistrements et n'est pas une entrée du modèle.
+
+Attention aux correspondances entre le jeu actuel et le schéma historique du modèle :
+
+| Colonne du jeu 2015-Present | Champ envoyé à l'API | Traitement |
+| ----------------------------- | ---------------------- | ---------- |
+| `EPAPropertyType` | `PrimaryPropertyType` | Approximation : le jeu actuel ne fournit plus `PrimaryPropertyType`. Les catégories ne sont pas nécessairement équivalentes à celles vues à l'entraînement. |
+| `PropertyGFABuildings` | `PropertyGFABuilding` | L'API renomme ensuite ce champ en `PropertyGFABuilding(s)` pour le modèle. |
+| `SecondLargestPropertyUseTypeGFA` (identifiant Socrata : `secondlargestpropertyuse`) | `SecondLargestPropertyUseTypeGFA` | Surface en pieds carrés. |
+| `NaturalGas(kBtu)` | `Has_NaturalGas` | `true` si la consommation est strictement positive, sinon `false`. |
+| `SteamUse(kBtu)` | `Has_Steam` | `true` si la consommation est strictement positive, sinon `false`. |
+
+Les champs de surface d'usage absents dans la source sont ramenés à `0`; la valeur catégorielle source `NA` est conservée telle quelle. Ces payloads illustrent le mapping et l'appel à l'API, mais les écarts de taxonomie entre les deux millésimes peuvent limiter la qualité des prédictions.
+
+Chaque objet JSON ci-dessous est à envoyer séparément à `POST /model/predict`.
+
+#### 1. Hôpital — DataYear 2025
+
+```json
+{
+  "BuildingType": "Hospital",
+  "PrimaryPropertyType": "Other/Specialty Hospital",
+  "Neighborhood": "LAKE UNION",
+  "Latitude": 47.626602695626,
+  "Longitude": -122.33047891939,
+  "YearBuilt": 2021,
+  "NumberofBuildings": 1,
+  "NumberofFloors": 5,
+  "PropertyGFAParking": 66459,
+  "PropertyGFABuilding": 131797,
+  "LargestPropertyUseType": "Other/Specialty Hospital",
+  "SecondLargestPropertyUseType": "Parking",
+  "SecondLargestPropertyUseTypeGFA": 0,
+  "ThirdLargestPropertyUseType": "NA",
+  "ThirdLargestPropertyUseTypeGFA": 0,
+  "Has_NaturalGas": true,
+  "Has_Steam": false
+}
+```
+
+#### 2. Bâtiment à usage mixte — DataYear 2025
+
+```json
+{
+  "BuildingType": "NonResidential",
+  "PrimaryPropertyType": "Mixed Use Property",
+  "Neighborhood": "LAKE UNION",
+  "Latitude": 47.653912401735,
+  "Longitude": -122.32544330281,
+  "YearBuilt": 2022,
+  "NumberofBuildings": 1,
+  "NumberofFloors": 5,
+  "PropertyGFAParking": 77291,
+  "PropertyGFABuilding": 216859,
+  "LargestPropertyUseType": "Office",
+  "SecondLargestPropertyUseType": "Other",
+  "SecondLargestPropertyUseTypeGFA": 79578,
+  "ThirdLargestPropertyUseType": "Non-Refrigerated Warehouse",
+  "ThirdLargestPropertyUseTypeGFA": 24058,
+  "Has_NaturalGas": false,
+  "Has_Steam": false
+}
+```
+
+#### 3. Bureau — DataYear 2025
+
+```json
+{
+  "BuildingType": "NonResidential",
+  "PrimaryPropertyType": "Office",
+  "Neighborhood": "DOWNTOWN",
+  "Latitude": 47.605422444475,
+  "Longitude": -122.33588476937,
+  "YearBuilt": 1950,
+  "NumberofBuildings": 1,
+  "NumberofFloors": 11,
+  "PropertyGFAParking": 10537,
+  "PropertyGFABuilding": 221508,
+  "LargestPropertyUseType": "Office",
+  "SecondLargestPropertyUseType": "Parking",
+  "SecondLargestPropertyUseTypeGFA": 26054,
+  "ThirdLargestPropertyUseType": "NA",
+  "ThirdLargestPropertyUseTypeGFA": 0,
+  "Has_NaturalGas": false,
+  "Has_Steam": false
+}
 ```
 
 Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` (chemins surchargeables par `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS`).
