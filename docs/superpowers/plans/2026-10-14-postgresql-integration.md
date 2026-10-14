@@ -1558,7 +1558,9 @@ def test_api_role_cannot_read_pii_or_actuals(provisioned_db):
     engine = create_engine(provisioned_db["api_url"])
     try:
         with engine.connect() as conn:
-            conn.execute(text("SELECT id, building_id, data_year FROM building_records_raw"))
+            conn.execute(
+                text("SELECT id, building_id, data_year FROM building_records_raw")
+            )
         for forbidden in (
             "SELECT address FROM building_records_raw",
             "SELECT * FROM building_actuals",
@@ -1651,7 +1653,11 @@ def test_token_form_password_masked():
 
 def test_nested_and_case_insensitive_keys_masked():
     value = {"a": [{"Access_Token": "x"}], "client_secret": "y", "keep": 1}
-    assert redact(value) == {"a": [{"Access_Token": "***"}], "client_secret": "***", "keep": 1}
+    assert redact(value) == {
+        "a": [{"Access_Token": "***"}],
+        "client_secret": "***",
+        "keep": 1,
+    }
 
 
 def test_json_with_charset_parsed():
@@ -2117,7 +2123,9 @@ def ingest_frame(
         )
         stmt = pg_insert(BuildingRecordRaw).values(chunk)
         updates = {
-            c: stmt.excluded[c] for c in chunk[0] if c not in ("building_id", "data_year")
+            c: stmt.excluded[c]
+            for c in chunk[0]
+            if c not in ("building_id", "data_year")
         }
         stmt = stmt.on_conflict_do_update(
             index_elements=["building_id", "data_year"],
@@ -3136,7 +3144,9 @@ from app.lib.tools import get_logger
 
 log = get_logger(__name__)
 
-UNTRACED_PATHS = frozenset({"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"})
+UNTRACED_PATHS = frozenset(
+    {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
+)
 MAX_PATH_LENGTH = 255
 
 
@@ -3284,7 +3294,9 @@ app.add_middleware(TraceMiddleware)
 
 @app.exception_handler(OperationalError)
 async def database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
-    return JSONResponse(status_code=503, content={"detail": "Base de données indisponible"})
+    return JSONResponse(
+        status_code=503, content={"detail": "Base de données indisponible"}
+    )
 
 
 app.include_router(auth.router)
@@ -3407,7 +3419,9 @@ def _input(db, prediction_id) -> PredictionInput:
         return s.get(PredictionInput, pred.prediction_input_id)
 
 
-def test_predict_by_id_uses_latest_year(client, db, auth_headers, demo_models, buildings):
+def test_predict_by_id_uses_latest_year(
+    client, db, auth_headers, demo_models, buildings
+):
     r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -3421,7 +3435,9 @@ def test_predict_by_id_uses_latest_year(client, db, auth_headers, demo_models, b
 
 def test_predict_by_id_and_year(client, db, auth_headers, demo_models, buildings):
     r = client.post(
-        "/model/predict", json={"building_id": 1, "data_year": 2016}, headers=auth_headers
+        "/model/predict",
+        json={"building_id": 1, "data_year": 2016},
+        headers=auth_headers,
     )
     assert r.status_code == 200, r.text
     assert _input(db, r.json()["prediction_id"]).building_record_id == buildings["2016"]
@@ -3434,7 +3450,9 @@ def test_unknown_building_404(client, auth_headers, buildings):
 
 def test_missing_year_404(client, auth_headers, buildings):
     r = client.post(
-        "/model/predict", json={"building_id": 1, "data_year": 2017}, headers=auth_headers
+        "/model/predict",
+        json={"building_id": 1, "data_year": 2017},
+        headers=auth_headers,
     )
     assert r.status_code == 404
 
@@ -3457,7 +3475,9 @@ def test_predict_requires_token(client, buildings):
 
 
 def test_manual_features_prediction(client, db, auth_headers, demo_models):
-    r = client.post("/model/predict/features", json=MANUAL_PAYLOAD, headers=auth_headers)
+    r = client.post(
+        "/model/predict/features", json=MANUAL_PAYLOAD, headers=auth_headers
+    )
     assert r.status_code == 200, r.text
     inp = _input(db, r.json()["prediction_id"])
     assert inp.input_source == "manual"
@@ -3471,7 +3491,9 @@ def test_manual_features_reject_extra_field(client, auth_headers):
     assert r.status_code == 422
 
 
-def test_compare_one_input_two_predictions(client, db, auth_headers, demo_models, buildings):
+def test_compare_one_input_two_predictions(
+    client, db, auth_headers, demo_models, buildings
+):
     r = client.post(
         "/model/predict/compare", json={"building_id": 1}, headers=auth_headers
     )
@@ -3578,7 +3600,13 @@ from sqlalchemy.orm import Session
 
 from app.core import kumo_service, model_service
 from app.db.mapping import features_from_sql, features_to_sql
-from app.db.models import Building, BuildingFeatures, BuildingRecordRaw, Prediction, PredictionInput
+from app.db.models import (
+    Building,
+    BuildingFeatures,
+    BuildingRecordRaw,
+    Prediction,
+    PredictionInput,
+)
 from app.db.registry import KUMO_NAME, active_model
 from app.schemas.api import FEATURE_COLUMNS, TARGETS, EnergyPredictionRequest
 
@@ -3984,14 +4012,18 @@ def _pending_features(
 def projected_metrics(
     session: Session, model: MlModel, years: list[int]
 ) -> pd.DataFrame:
-    rows = session.execute(
-        text(
-            "SELECT * FROM v_projected_evaluation "
-            "WHERE model_name = :name AND model_version = :version "
-            "AND data_year = ANY(:years)"
-        ),
-        {"name": model.name, "version": model.version, "years": years},
-    ).mappings().all()
+    rows = (
+        session.execute(
+            text(
+                "SELECT * FROM v_projected_evaluation "
+                "WHERE model_name = :name AND model_version = :version "
+                "AND data_year = ANY(:years)"
+            ),
+            {"name": model.name, "version": model.version, "years": years},
+        )
+        .mappings()
+        .all()
+    )
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -4000,7 +4032,9 @@ def projected_metrics(
         for target, (pred_col, actual_col) in TARGET_PAIRS.items():
             ok = group[actual_col] > 0
             scores = metrics_reelles(group.loc[ok, actual_col], group.loc[ok, pred_col])
-            out.append({"data_year": int(year), "target": target, "n": int(ok.sum()), **scores})
+            out.append(
+                {"data_year": int(year), "target": target, "n": int(ok.sum()), **scores}
+            )
     return pd.DataFrame(out)
 
 
