@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
 
@@ -51,6 +52,15 @@ def _candidate_sort_key(c: dict) -> tuple:
     )
 
 
+@dataclass(frozen=True)
+class TrainingData:
+    """Jeu d'entraînement préparé en base (features, cibles, split figé)."""
+
+    X: pd.DataFrame
+    Y: pd.DataFrame
+    split: pd.Series
+
+
 class TrainPipeline:
     """Orchestre split -> FE -> CV -> pré-réglage -> fine-tuning -> train -> éval."""
 
@@ -58,6 +68,7 @@ class TrainPipeline:
         self,
         df_raw: pd.DataFrame | None = None,
         *,
+        training_data: TrainingData | None = None,
         csv_path: str | Path | None = None,
         output_dir: str | Path = "models",
         test_size: float = 0.2,
@@ -66,15 +77,18 @@ class TrainPipeline:
         mlflow_tracking_uri: str | None = None,
         mlflow_experiment: str | None = None,
     ) -> None:
-        if df_raw is None and csv_path is None:
-            raise ValueError("Fournir df_raw ou csv_path.")
+        if df_raw is None and csv_path is None and training_data is None:
+            raise ValueError("Fournir df_raw, csv_path ou training_data.")
+        self.training_data = training_data
         if df_raw is not None:
             self.df_raw = df_raw
-        else:
+        elif csv_path is not None:
             csv_path = Path(csv_path)
             if not csv_path.exists():
                 raise FileNotFoundError(f"Dataset introuvable : {csv_path}")
             self.df_raw = pd.read_csv(csv_path)
+        else:
+            self.df_raw = None
         self.output_dir = Path(output_dir)
         self.test_size = test_size
         self.seed = seed
@@ -94,6 +108,7 @@ class TrainPipeline:
         self.best_params: dict[str, dict] = {}
         self.models: dict[str, CatBoostRegressor] = {}
         self.metrics: dict = {}
+        self.mlflow_run_id: str | None = None
 
     def _require_split(self, *, require_features: bool = False) -> None:
         """Garde commune : vérifie que split() a bien préparé l'état."""
@@ -107,6 +122,17 @@ class TrainPipeline:
     @timed("split")
     def split(self) -> TrainPipeline:
         """Nettoyage puis découpe train/test (les indices bruts sont conservés)."""
+        if self.training_data is not None:
+            td = self.training_data
+            self.df_clean = td.X.join(td.Y)
+            self.idx_train = td.split.index[td.split == "train"]
+            self.idx_test = td.split.index[td.split == "test"]
+            log.info(
+                "split (base) : %d train / %d test",
+                len(self.idx_train),
+                len(self.idx_test),
+            )
+            return self
         self.df_clean = dp.build_clean(self.df_raw)
         if len(self.df_clean) < 2:
             raise ValueError(
@@ -124,6 +150,17 @@ class TrainPipeline:
         """Encodage stateless (catégorielles en str + flags), appliqué
         identiquement à train et test."""
         self._require_split()
+        if self.training_data is not None:
+            td = self.training_data
+            self.X_train, self.X_test = (
+                td.X.loc[self.idx_train],
+                td.X.loc[self.idx_test],
+            )
+            self.Y_train, self.Y_test = (
+                td.Y.loc[self.idx_train],
+                td.Y.loc[self.idx_test],
+            )
+            return self
         features = [
             c for c in FEATURE_COLUMNS if c not in ("Has_NaturalGas", "Has_Steam")
         ]
@@ -370,7 +407,8 @@ class TrainPipeline:
             log.warning("Échec de l'évaluation Kumo, repli sur CatBoost : %s", exc)
             self.evaluate(kumo_predictor=None)
 
-        with mlflow.start_run(run_name="p5-multitarget"):
+        with mlflow.start_run(run_name="p5-multitarget") as parent_run:
+            self.mlflow_run_id = parent_run.info.run_id
             mlflow.log_params(
                 {
                     "test_size": self.test_size,
