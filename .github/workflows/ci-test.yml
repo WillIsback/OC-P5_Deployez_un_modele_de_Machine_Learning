@@ -32,6 +32,8 @@ jobs:
       SECRET_KEY: cle-factice-ci-non-secrete
       # Comptes de démo (johndoe/secret) utilisés par les tests d'API.
       P5_SEED_DEMO_USERS: "1"
+      # Postgres injoignable → échec (et non skip silencieux des tests BDD).
+      REQUIRE_TEST_DB: "1"
 
     services:
       postgres:

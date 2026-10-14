@@ -37,6 +37,16 @@ TEST_PREFIX = "p5test"
 TEST_PASSWORDS = {"owner": "owner-test", "api": "api-test", "mlflow": "mlflow-test"}
 
 
+def db_unavailable(exc: Exception) -> None:
+    """Base de test injoignable : skip en local, échec si REQUIRE_TEST_DB=1 (CI)."""
+    message = (
+        f"PostgreSQL de test indisponible ({exc}). Lancez `docker compose up -d db`."
+    )
+    if os.getenv("REQUIRE_TEST_DB") == "1":
+        pytest.fail(f"{message} (REQUIRE_TEST_DB=1 : base obligatoire)")
+    pytest.skip(message)
+
+
 @pytest.fixture(scope="session")
 def provisioned_db():
     try:
@@ -44,10 +54,7 @@ def provisioned_db():
             create_db.dsn(ADMIN_URL), autocommit=True, connect_timeout=3
         )
     except psycopg.OperationalError as exc:
-        pytest.skip(
-            f"PostgreSQL de test indisponible ({exc}). "
-            "Lancez `docker compose up -d db`."
-        )
+        db_unavailable(exc)
     with conn:
         for name in (TEST_DB, TEST_MLFLOW_DB):
             conn.execute(
