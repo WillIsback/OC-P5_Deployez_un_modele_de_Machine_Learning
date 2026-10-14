@@ -1,5 +1,6 @@
 """Authentification JWT sur la table users (sub = id)."""
 
+import os
 from datetime import timedelta
 
 import jwt
@@ -7,7 +8,8 @@ import pytest
 from conftest import login
 from sqlalchemy import select
 
-from app.core.security import ALGORITHM, SECRET_KEY, create_access_token
+from app.core import security
+from app.core.security import ALGORITHM, create_access_token
 from app.db.models import User
 
 pytestmark = pytest.mark.db
@@ -21,7 +23,9 @@ def _johndoe_id(db) -> int:
 def test_token_sub_is_user_id(client, db):
     r = login(client, "johndoe", "secret")
     assert r.status_code == 200, r.text
-    payload = jwt.decode(r.json()["access_token"], SECRET_KEY, algorithms=[ALGORITHM])
+    payload = jwt.decode(
+        r.json()["access_token"], os.environ["SECRET_KEY"], algorithms=[ALGORITHM]
+    )
     assert payload["sub"] == str(_johndoe_id(db))
 
 
@@ -76,3 +80,11 @@ def test_token_of_deactivated_user_rejected(client, db, auth_headers):
         s.get(User, _johndoe_id(db)).is_active = False
         s.commit()
     assert client.get("/model/list", headers=auth_headers).status_code == 401
+
+
+def test_missing_secret_key_raises_explicit_error(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        create_access_token({"sub": "1"})
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        security.decode_token("x.y.z")

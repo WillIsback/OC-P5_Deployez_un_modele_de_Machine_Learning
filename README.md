@@ -137,7 +137,7 @@ Puis utilisez-le sur les routes protégées :
 curl http://localhost:8000/model/list -H "Authorization: Bearer <TOKEN>"
 ```
 
-La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`.
+La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`. Elle est **obligatoire** : le code ne contient aucune clé par défaut, et créer ou vérifier un jeton sans `SECRET_KEY` lève une erreur explicite.
 
 ---
 

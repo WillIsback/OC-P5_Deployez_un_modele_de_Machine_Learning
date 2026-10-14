@@ -27,6 +27,9 @@ jobs:
         python-version: ["3.11", "3.12"]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Valeur factice de CI : le code n'a plus de clé de repli.
+      SECRET_KEY: cle-factice-ci-non-secrete
 
     services:
       postgres:

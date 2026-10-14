@@ -18,6 +18,10 @@ from sqlalchemy.orm import sessionmaker
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# Avant tout import de l'app : clé de signature factice (aucune clé de repli
+# dans le code).
+os.environ.setdefault("SECRET_KEY", "cle-de-test-non-secrete")
+
 from app.core import metrics_service, model_service
 from app.db import create_db
 from app.db import session as db_session

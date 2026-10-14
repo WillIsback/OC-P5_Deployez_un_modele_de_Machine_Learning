@@ -27,13 +27,6 @@ from ..db.session import SessionDep
 # Generate a secret with:  openssl rand -hex 32
 load_dotenv()
 
-# En production, définir impérativement SECRET_KEY (via .env / variable d'env).
-# Fallback de développement et de CI : clé de démo NON sûre pour la production.
-# Elle évite qu'un import échoue quand le fichier .env est absent (ex: pipeline CI).
-SECRET_KEY = (
-    os.getenv("SECRET_KEY")
-    or "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -45,6 +38,26 @@ DUMMY_HASH = password_hash.hash("dummypassword")
 # Security scheme for protected routes: client must send a "Bearer <token>"
 # header. In the docs, the "Authorize" dialog then only asks for the JWT.
 security = HTTPBearer(auto_error=False)
+
+
+def _secret_key() -> str:
+    """Clé de signature des JWT, lue à chaque usage (aucune clé de repli).
+
+    L'import reste possible sans clé (CI, outillage) ; créer ou vérifier un jeton
+    sans ``SECRET_KEY`` échoue explicitement.
+    """
+    key = os.getenv("SECRET_KEY")
+    if not key:
+        raise RuntimeError(
+            "SECRET_KEY non défini : renseignez-le dans .env ou l'environnement "
+            "(génération : `openssl rand -hex 32`)."
+        )
+    return key
+
+
+def decode_token(token: str) -> dict:
+    """Vérifie la signature et l'expiration du jeton, puis retourne ses claims."""
+    return jwt.decode(token, _secret_key(), algorithms=[ALGORITHM])
 
 
 def verify_password(plain_password, hashed_password):
@@ -77,7 +90,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     else:
         expire = datetime.now(UTC) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -122,7 +135,7 @@ def get_current_user(
     if token is None:
         raise credentials_exception
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = decode_token(token)
         user_id = int(payload.get("sub"))
     except (InvalidTokenError, TypeError, ValueError):
         raise credentials_exception
