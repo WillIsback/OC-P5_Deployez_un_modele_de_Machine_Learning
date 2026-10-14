@@ -32,6 +32,9 @@ services:
   tools:
     build: .
     profiles: ["tools"]
+    # Uid/gid de l'hôte pour écrire dans ./models et ./mlruns (montages liés).
+    # Si `id -u` / `id -g` ne valent pas 1000, définir UID et GID dans .env.
+    user: "${UID:-1000}:${GID:-1000}"
     environment:
       SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
       DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}@db:5432/postgres
@@ -48,8 +51,14 @@ services:
         condition: service_healthy
     volumes:
       - ./data:/app/data:ro
-      # Écriture : l'entraînement produit models/*.cbm et models/scores.json.
+      # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
       - ./models:/app/models
+      # Artefacts MLflow (les métadonnées sont dans la base `mlflow`).
+      - ./mlruns:/app/mlruns
+    # Journaux d'entraînement CatBoost (catboost_info/ dans le dossier courant,
+    # /app n'est pas inscriptible par l'uid de l'hôte) : jetables.
+    tmpfs:
+      - /app/catboost_info
 
 volumes:
   pgdata:

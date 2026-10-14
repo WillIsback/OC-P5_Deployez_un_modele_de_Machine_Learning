@@ -182,6 +182,14 @@ docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 DATABASE_OWNER_URL=postgresql+psycopg://x@localhost/p5 uv run alembic upgrade head --sql > docs/db/schema.sql
 ```
 
+**Service `tools` et fichiers de l'hôte.** Le service `tools` tourne avec l'uid/gid de l'hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour pouvoir écrire dans les montages `./models` et `./mlruns`. Si `id -u` / `id -g` ne valent pas 1000, ajouter `UID=…` et `GID=…` au fichier `.env` (en bash, `UID` est une variable en lecture seule non exportée : la définir dans `.env` est le plus simple). Créer les dossiers avant le premier lancement (`mkdir -p models mlruns`), sinon Docker les crée au nom de root. Les journaux CatBoost (`catboost_info/`) vont dans un `tmpfs` jetable.
+
+**Artefacts MLflow.** Les métadonnées MLflow sont dans la base `mlflow`, les artefacts dans `./mlruns` (monté sur `/app/mlruns`). Chaque expérience mémorise un `artifact_location` **absolu** fixé à sa création : une expérience créée depuis l'hôte (`uv run python -m app.training`) pointe vers `/chemin/de/l/hôte/mlruns/<id>`, introuvable dans le conteneur (l'entraînement échoue alors sur `PermissionError` à l'enregistrement des artefacts), et inversement une expérience créée par `tools` pointe vers `/app/mlruns/<id>`. Dans ce cas, soit entraîner en local avec `uv run python -m app.training`, soit utiliser une expérience dédiée au conteneur :
+
+```bash
+docker compose run --rm -e MLFLOW_EXPERIMENT=seattle-energy-docker tools python -m app.training
+```
+
 ### Années de production 2017–2019
 
 Les fichiers CSV 2017, 2018 et 2019 ne sont **pas** fournis dans `data/` : il faut les y déposer, puis compléter la table `YEAR_COLUMN_RENAMES` de `app/db/ingest.py` (renommage des colonnes source vers les noms du schéma 2016, une entrée par année) avant de les ingérer. Ensuite, pour chaque année :
