@@ -349,3 +349,46 @@ def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
     assert set(metrics) == set(dp.TARGETS)
     for target in dp.TARGETS:
         assert set(metrics[target]["models"]) == {"catboost"}
+
+
+def test_filter_scope_excludes_only_residential():
+    df = make_synth(80)
+    scoped = dp.filter_scope(df)
+    assert not scoped["BuildingType"].str.startswith("Multifamily").any()
+    assert 2 in scoped.index  # l'outlier reste dans le périmètre
+
+
+def test_apply_common_corrections():
+    df = make_synth(40)
+    df.loc[0, "NumberofBuildings"] = 0
+    out = dp.apply_common_corrections(df)
+    assert out.loc[0, "NumberofBuildings"] == 1
+    assert (out["Neighborhood"] == out["Neighborhood"].str.upper().str.strip()).all()
+
+
+def test_flag_training_eligibility_reasons():
+    df = dp.filter_scope(make_synth(80))
+    df.loc[6, "SiteEnergyUse(kBtu)"] = 0
+    df.loc[7, "TotalGHGEmissions"] = np.nan
+    flags = dp.flag_training_eligibility(df)
+    assert flags.loc[2, "exclusion_reason"] == "outlier"
+    assert flags.loc[4, "exclusion_reason"] == "non_compliant"
+    assert flags.loc[6, "exclusion_reason"] == "non_positive_target"
+    assert flags.loc[7, "exclusion_reason"] == "missing_target"
+    assert flags.loc[0, "is_training_eligible"]
+    assert flags.loc[0, "exclusion_reason"] is None
+    assert (flags["is_training_eligible"] == flags["exclusion_reason"].isna()).all()
+
+
+def test_assign_split_matches_train_test_split():
+    from sklearn.model_selection import train_test_split
+
+    idx = pd.Index(range(100, 150))
+    split = dp.assign_split(idx, test_size=0.2, seed=42)
+    _, expected_test = train_test_split(idx, test_size=0.2, random_state=42)
+    assert set(split.index[split == "test"]) == set(expected_test)
+    assert set(split.unique()) == {"train", "test"}
+
+
+def test_osebuildingid_not_pii():
+    assert "OSEBuildingID" not in dp.PII_COLUMNS
