@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 from sqlalchemy import update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
@@ -29,6 +29,7 @@ UNTRACED_PATHS = frozenset(
     {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
 )
 MAX_PATH_LENGTH = 255
+MAX_METHOD_LENGTH = 10
 
 
 def _client_ip(scope: Scope) -> str | None:
@@ -52,8 +53,9 @@ def _insert_request(
     with db_session.SessionLocal() as session:
         row = ApiRequest(
             request_id=request_id,
-            method=method,
-            path=path[:MAX_PATH_LENGTH],
+            method=method[:MAX_METHOD_LENGTH],
+            # Postgres refuse le caractère nul dans un varchar.
+            path=path.replace("\x00", "\ufffd")[:MAX_PATH_LENGTH],
             client_ip=client_ip,
             request_body=request_body,
         )
@@ -114,7 +116,12 @@ class TraceMiddleware:
                 _client_ip(scope),
                 to_trace(body, Headers(scope=scope).get("content-type")),
             )
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
+            if not isinstance(exc, (OperationalError, InterfaceError)):
+                # Erreur de données : la base est joignable, la requête passe sans trace.
+                log.exception("Trace impossible, requête traitée sans trace")
+                await self.app(scope, replay, send)
+                return
             log.exception("Trace impossible : base de données indisponible")
             response = JSONResponse(
                 {"detail": "Base de données indisponible"}, status_code=503

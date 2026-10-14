@@ -59,6 +59,21 @@ def test_long_path_truncated(client, db):
     assert len(row.path) == 255
 
 
+def test_nul_in_path_sanitized(client, db):
+    r = client.get("/a%00b")
+    assert r.status_code == 404
+    row = _trace(db, r)
+    assert "\x00" not in row.path
+    assert row.path == "/a\ufffdb"
+
+
+def test_long_method_truncated(client, db):
+    r = client.request("VERSION-CONTROL", "/model/list")
+    assert r.status_code == 405
+    row = _trace(db, r)
+    assert row.method == "VERSION-CO"
+
+
 def test_docs_not_traced(client, db):
     with db() as s:
         before = s.scalar(select(func.count()).select_from(ApiRequest))
@@ -75,7 +90,7 @@ def test_unusual_body_traced_with_raw_marker(client, db):
         content=b"\xff\xfe\x00binaire",
         headers={"Content-Type": "application/json"},
     )
-    assert r.status_code != 503
+    assert r.status_code == 422
     row = _trace(db, r)
     assert "_raw" in row.request_body
 
