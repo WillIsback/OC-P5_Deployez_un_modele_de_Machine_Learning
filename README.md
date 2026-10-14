@@ -277,8 +277,8 @@ uv run python -m app.training
 
 L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_features` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
 `TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
-logue les runs MLflow (`uv run mlflow ui`). Sorties : `models/<cible>.cbm` et
-`models/scores.json`.
+logue les runs MLflow (`uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"`). Sorties : `models/<cible>.cbm`,
+`models/scores.json` et `models/version.json` (version servie, lue par l'API).
 
 ### Suivi d'expérimentation avec MLflow
 
@@ -293,7 +293,10 @@ export MLFLOW_TRACKING_URI="postgresql+psycopg://p5_mlflow:<mdp>@localhost:5432/
 export MLFLOW_EXPERIMENT="seattle-energy"           # défaut
 uv run python -m app.training
 ```
-Puis visualiser : `uv run mlflow ui`.
+Puis visualiser (les runs sont dans PostgreSQL, pas dans `./mlruns` : préciser la base) :
+```bash
+uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"
+```
 
 ### Tests unitaires du training
 
