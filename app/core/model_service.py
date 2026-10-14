@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -21,8 +23,28 @@ MODEL_PATHS = {
     "emissions": os.getenv("MODEL_PATH_EMISSIONS", "models/emissions.cbm"),
 }
 
+# Écrit par `python -m app.training` : {"name", "version", "mlflow_run_id"}.
+VERSION_PATH = os.getenv("MODEL_VERSION_PATH", "models/version.json")
+
 _models: dict[str, CatBoostRegressor] = {}
+_version: dict[str, Any] | None = None
 _lock = threading.Lock()
+
+
+def _read_version() -> dict[str, Any] | None:
+    if not os.path.exists(VERSION_PATH):
+        return None
+    with open(VERSION_PATH, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def loaded_version() -> dict[str, Any] | None:
+    """Version des .cbm en mémoire (lue au premier chargement), None si inconnue.
+
+    Les modèles restent en cache : après un réentraînement, l'API sert l'ancienne
+    version jusqu'à son redémarrage, et c'est celle-ci qui doit être tracée.
+    """
+    return _version
 
 
 def load_model(target: str) -> CatBoostRegressor:
@@ -42,6 +64,10 @@ def load_model(target: str) -> CatBoostRegressor:
                     )
                 model = CatBoostRegressor()
                 model.load_model(path)
+                if not _models:
+                    # Premier modèle chargé : on fige la version associée.
+                    global _version
+                    _version = _read_version()
                 _models[target] = model
     return model
 

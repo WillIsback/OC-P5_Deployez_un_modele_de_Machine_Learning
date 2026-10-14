@@ -1,5 +1,6 @@
 """Tests des services de modèles (CatBoost multi-cible)."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -99,3 +100,31 @@ def test_predict_frame_returns_vector_per_target(tmp_path, monkeypatch):
     assert set(out) == {"energy", "emissions"}
     assert out["energy"].shape == (2,)
     assert (out["energy"] > 0).all()
+
+
+def _two_models(tmp_path, monkeypatch):
+    for target in ("energy", "emissions"):
+        path = tmp_path / f"{target}.cbm"
+        _train(path)
+        monkeypatch.setitem(model_service.MODEL_PATHS, target, str(path))
+    monkeypatch.setattr(model_service, "_models", {})
+
+
+def test_loaded_version_read_with_models(tmp_path, monkeypatch):
+    _two_models(tmp_path, monkeypatch)
+    version_file = tmp_path / "version.json"
+    info = {"name": "catboost-multitarget", "version": "v1", "mlflow_run_id": "r1"}
+    version_file.write_text(json.dumps(info))
+    monkeypatch.setattr(model_service, "VERSION_PATH", str(version_file))
+    model_service.load_model("energy")
+    # Un réentraînement réécrit le fichier : la version chargée ne change pas.
+    version_file.write_text(json.dumps(dict(info, version="v2")))
+    model_service.load_model("emissions")
+    assert model_service.loaded_version() == info
+
+
+def test_loaded_version_none_without_file(tmp_path, monkeypatch):
+    _two_models(tmp_path, monkeypatch)
+    monkeypatch.setattr(model_service, "VERSION_PATH", str(tmp_path / "absent.json"))
+    model_service.load_model("energy")
+    assert model_service.loaded_version() is None

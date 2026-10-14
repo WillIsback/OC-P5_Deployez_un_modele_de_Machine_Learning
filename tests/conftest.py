@@ -183,6 +183,8 @@ def demo_models(tmp_path, monkeypatch):
     monkeypatch.setitem(model_service.MODEL_PATHS, "energy", str(energy))
     monkeypatch.setitem(model_service.MODEL_PATHS, "emissions", str(emissions))
     monkeypatch.setattr(model_service, "_models", {})
+    # Pas de version.json : repli sur la version active du registre.
+    monkeypatch.setattr(model_service, "VERSION_PATH", str(tmp_path / "version.json"))
     scores = tmp_path / "scores.json"
     scores.write_text(json.dumps(_SCORES))
     monkeypatch.setattr(metrics_service, "METRICS_PATH", str(scores))

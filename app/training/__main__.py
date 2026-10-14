@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.db import session as db_session
 from app.db.registry import CATBOOST_NAME, register_model
@@ -48,6 +50,15 @@ def main(argv: list[str] | None = None) -> None:
             artifact_path=str(args.output_dir),
         )
         name, version = model.name, model.version
+    # Lu par l'API au chargement des .cbm pour tracer la version réellement servie.
+    version_info = {
+        "name": name,
+        "version": version,
+        "mlflow_run_id": pipe.mlflow_run_id,
+    }
+    Path(args.output_dir, "version.json").write_text(
+        json.dumps(version_info, indent=2), encoding="utf-8"
+    )
     print(f"[done] {name} v{version} activé — scores: {metrics}")
 
 

@@ -1,5 +1,7 @@
 """Routes de prédiction : écriture input → prédiction → trace (spec §4.3)."""
 
+import json
+
 import pytest
 from sqlalchemy import func, select, update
 from synth import EXAMPLE_FEATURES, add_record
@@ -332,3 +334,37 @@ def test_manual_features_out_of_bounds_422(client, auth_headers, override):
 def test_building_request_out_of_bounds_422(client, auth_headers, route, payload):
     r = client.post(route, json=payload, headers=auth_headers)
     assert r.status_code == 422, r.text
+
+
+def _write_version(path, version: str) -> None:
+    info = {"name": CATBOOST_NAME, "version": version, "mlflow_run_id": None}
+    path.write_text(json.dumps(info))
+
+
+def test_prediction_traces_loaded_version_not_active(
+    client, db, auth_headers, demo_models, buildings, tmp_path, monkeypatch
+):
+    """Après un réentraînement, l'API sert encore la version chargée."""
+    _write_version(tmp_path / "version.json", "v-loaded")
+    monkeypatch.setattr(model_service, "VERSION_PATH", str(tmp_path / "version.json"))
+    with db() as s:
+        loaded = MlModel(name=CATBOOST_NAME, version="v-loaded", is_active=False)
+        s.add(loaded)
+        s.commit()
+        loaded_id = loaded.id
+    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    with db() as s:
+        assert s.get(Prediction, r.json()["prediction_id"]).model_id == loaded_id
+
+
+def test_loaded_version_unknown_in_registry_503(
+    client, db, auth_headers, demo_models, buildings, tmp_path, monkeypatch
+):
+    _write_version(tmp_path / "version.json", "v-inconnue")
+    monkeypatch.setattr(model_service, "VERSION_PATH", str(tmp_path / "version.json"))
+    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+    assert r.status_code == 503
+    assert "Aucun modèle" in r.json()["detail"]
+    with db() as s:
+        assert s.scalar(select(func.count()).select_from(Prediction)) == 0

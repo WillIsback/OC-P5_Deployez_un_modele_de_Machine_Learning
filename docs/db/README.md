@@ -127,6 +127,7 @@ Le diagramme omet les colonnes de données de `building_records_raw` (miroir typ
 ### Limites connues
 
 - **`artifact_path` partagé.** Toutes les versions de `catboost-multitarget` pointent vers le même dossier `models/`. Si l'enregistrement dans `ml_models` échoue après l'écriture des fichiers, la version active peut ne pas correspondre aux fichiers `.cbm` servis.
+- **Version servie et redémarrage.** L'entraînement écrit `models/version.json` (`name`, `version`, `mlflow_run_id`) après l'enregistrement dans `ml_models`. L'API garde les `.cbm` en mémoire et lit ce fichier au premier chargement : chaque prédiction CatBoost référence la ligne `ml_models` de la version **chargée**, pas forcément la version active. Sans `version.json` (fichiers `.cbm` antérieurs), elle se replie sur la version active ; si la version chargée est absente du registre, la prédiction est refusée (503). **Redémarrer l'API après chaque entraînement** (`docker compose restart api`) pour servir la nouvelle version.
 - **`/model/predict/compare` et Kumo.** Si l'appel Kumo échoue, la route renvoie 503 mais conserve la ligne `prediction_inputs` et la prédiction CatBoost déjà calculée : la trace reflète l'appel réellement exécuté.
 - **Healthcheck.** Le healthcheck du `Dockerfile` appelle `/docs` toutes les 30 secondes ; ce chemin figure dans `UNTRACED_PATHS` du middleware de trace, il n'écrit donc rien en base.
 
@@ -166,8 +167,11 @@ Si `docker compose build` échoue faute de nouvelles dépendances dans l'image d
 ### Entraînement, évaluation et DDL
 
 ```bash
-# Entraînement depuis PostgreSQL (écrit models/*.cbm et models/scores.json, trace ml_models)
+# Entraînement depuis PostgreSQL (écrit models/*.cbm, models/scores.json et
+# models/version.json, trace ml_models), puis redémarrage de l'API pour servir la
+# nouvelle version
 docker compose run --rm tools python -m app.training
+docker compose restart api
 
 # Évaluation projetée sur les années de production
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019

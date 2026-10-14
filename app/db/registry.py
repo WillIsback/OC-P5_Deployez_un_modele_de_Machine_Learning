@@ -24,6 +24,16 @@ def active_model(session: Session, name: str) -> MlModel:
     return model
 
 
+def model_by_version(session: Session, name: str, version: str) -> MlModel:
+    """Ligne du registre d'une version précise (active ou non)."""
+    model = session.scalar(
+        select(MlModel).where(MlModel.name == name, MlModel.version == version)
+    )
+    if model is None:
+        raise NoActiveModel(f"{name} {version}")
+    return model
+
+
 def register_model(
     session: Session,
     *,

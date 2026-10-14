@@ -14,10 +14,11 @@ from app.db.models import (
     Building,
     BuildingFeatures,
     BuildingRecordRaw,
+    MlModel,
     Prediction,
     PredictionInput,
 )
-from app.db.registry import KUMO_NAME, active_model
+from app.db.registry import KUMO_NAME, active_model, model_by_version
 from app.schemas.api import FEATURE_COLUMNS, TARGETS, EnergyPredictionRequest
 
 
@@ -102,14 +103,29 @@ def input_frame(inp: PredictionInput) -> pd.DataFrame:
     return pd.DataFrame([features_from_sql(inp)])[FEATURE_COLUMNS]
 
 
+def _served_catboost(session: Session, model_name: str) -> MlModel:
+    """Ligne du registre de la version CatBoost réellement chargée en mémoire.
+
+    Repli sur la version active si aucun ``version.json`` n'accompagne les .cbm.
+    """
+    version = model_service.loaded_version()
+    if version is None:
+        return active_model(session, model_name)
+    return model_by_version(
+        session, version.get("name", model_name), version["version"]
+    )
+
+
 def run_model(session: Session, inp: PredictionInput, model_name: str) -> Prediction:
     """Prédit depuis la ligne stockée (pas depuis le payload HTTP)."""
-    model = active_model(session, model_name)
     frame = input_frame(inp)
     if model_name == KUMO_NAME:
+        model = active_model(session, model_name)
         values = {t: float(kumo_service.predict_batch(frame, t)[0]) for t in TARGETS}
     else:
+        # Prédire d'abord : le chargement des .cbm fige la version à tracer.
         values = {t: float(v[0]) for t, v in model_service.predict_frame(frame).items()}
+        model = _served_catboost(session, model_name)
     prediction = Prediction(
         prediction_input_id=inp.id,
         model_id=model.id,
