@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 CAT_FEATURES = [
     "BuildingType",
@@ -37,6 +38,17 @@ TARGETS = {
 }
 
 
+# Bornes alignées sur les types SQL (app/db/models.py) : une saisie hors bornes
+# est refusée en 422 au lieu d'échouer en 500 à l'insertion.
+SMALLINT_MAX = 32_767
+INTEGER_MAX = 2_147_483_647
+
+Category = Annotated[str, Field(max_length=64)]  # VARCHAR(64)
+NonNegativeSmallInt = Annotated[int, Field(ge=0, le=SMALLINT_MAX)]  # SMALLINT
+NonNegativeInt = Annotated[int, Field(ge=0, le=INTEGER_MAX)]  # INTEGER
+NonNegativeFloat = Annotated[float, Field(ge=0)]  # DOUBLE PRECISION
+
+
 class Model(BaseModel):
     id: int
     name: str
@@ -50,21 +62,21 @@ class EnergyPredictionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    BuildingType: str
-    PrimaryPropertyType: str
-    Neighborhood: str
-    Latitude: float
-    Longitude: float
-    YearBuilt: int
-    NumberofBuildings: float
-    NumberofFloors: int
-    PropertyGFAParking: int
-    PropertyGFABuilding: int = 0
-    LargestPropertyUseType: str
-    SecondLargestPropertyUseType: str
-    SecondLargestPropertyUseTypeGFA: float
-    ThirdLargestPropertyUseType: str
-    ThirdLargestPropertyUseTypeGFA: float = 0.0
+    BuildingType: Category
+    PrimaryPropertyType: Category
+    Neighborhood: Category
+    Latitude: Annotated[float, Field(ge=-90, le=90)]
+    Longitude: Annotated[float, Field(ge=-180, le=180)]
+    YearBuilt: NonNegativeSmallInt
+    NumberofBuildings: NonNegativeFloat
+    NumberofFloors: NonNegativeSmallInt
+    PropertyGFAParking: NonNegativeInt
+    PropertyGFABuilding: NonNegativeInt = 0
+    LargestPropertyUseType: Category
+    SecondLargestPropertyUseType: Category
+    SecondLargestPropertyUseTypeGFA: NonNegativeFloat
+    ThirdLargestPropertyUseType: Category
+    ThirdLargestPropertyUseTypeGFA: NonNegativeFloat = 0.0
     Has_NaturalGas: bool = False
     Has_Steam: bool = False
 
@@ -74,8 +86,8 @@ class BuildingPredictionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    building_id: int
-    data_year: int | None = None
+    building_id: NonNegativeInt  # INTEGER
+    data_year: NonNegativeSmallInt | None = None  # SMALLINT
 
 
 class EnergyPredictionResponse(BaseModel):

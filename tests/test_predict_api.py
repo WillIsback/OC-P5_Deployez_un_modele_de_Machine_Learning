@@ -301,3 +301,34 @@ def test_raw_record_without_features_422(client, db, auth_headers, buildings):
     )
     assert r.status_code == 422
     assert "hors périmètre" in r.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"BuildingType": "x" * 65},
+        {"Neighborhood": "y" * 65},
+        {"YearBuilt": 40000},
+        {"NumberofFloors": -1},
+        {"PropertyGFAParking": 2**31},
+        {"PropertyGFABuilding": -5},
+        {"Latitude": 91.0},
+    ],
+)
+def test_manual_features_out_of_bounds_422(client, auth_headers, override):
+    r = client.post(
+        "/model/predict/features",
+        json=dict(MANUAL_PAYLOAD, **override),
+        headers=auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"building_id": 2**40}, {"building_id": 1, "data_year": 70000}],
+)
+@pytest.mark.parametrize("route", ["/model/predict", "/model/predict/compare"])
+def test_building_request_out_of_bounds_422(client, auth_headers, route, payload):
+    r = client.post(route, json=payload, headers=auth_headers)
+    assert r.status_code == 422, r.text
