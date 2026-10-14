@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db.redaction import MAX_TRACE_BYTES, parse_body, redact, to_trace
@@ -79,3 +81,33 @@ def test_no_null_char_survives_any_path():
         (b"a=%00", FORM),
     ]:
         assert "\x00" not in json.dumps(to_trace(body, ctype), ensure_ascii=False)
+
+
+DEEP = b"[" * 30000 + b"]" * 30000
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"x": "\\ud800"}',
+        b'{"\\ud800": 1}',
+        b'{"x": NaN}',
+        b'{"x": Infinity}',
+        b'{"x": -Infinity}',
+        b'{"x": 1e999}',
+        DEEP,
+    ],
+    ids=[
+        "surrogate-valeur",
+        "surrogate-cle",
+        "nan",
+        "infinity",
+        "-infinity",
+        "1e999",
+        "imbrication",
+    ],
+)
+def test_jsonb_incompatible_values_fall_back_to_raw_marker(body):
+    out = to_trace(body, JSON)
+    assert out == {"_raw": f"<non-JSON, {len(body)} octets>"}
+    json.dumps(out, allow_nan=False, ensure_ascii=False).encode("utf-8")

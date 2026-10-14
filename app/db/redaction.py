@@ -56,11 +56,21 @@ def parse_body(body: bytes, content_type: str | None) -> Any | None:
             )
         if ctype == "application/json" or ctype.endswith("+json"):
             return _sanitize(json.loads(body))
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         pass
     return _raw_marker(body)
 
 
 def to_trace(body: bytes, content_type: str | None) -> Any | None:
-    """Corps HTTP → valeur masquée, prête à être stockée en JSONB."""
-    return redact(parse_body(body, content_type))
+    """Corps HTTP → valeur masquée, prête à être stockée en JSONB.
+
+    Une validation finale garantit que le résultat est acceptable par JSONB
+    (pas de NaN/Infinity, pas de surrogate isolé, profondeur raisonnable) ;
+    sinon on se replie sur le marqueur ``_raw`` (sans le contenu).
+    """
+    try:
+        result = redact(parse_body(body, content_type))
+        json.dumps(result, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    except (ValueError, UnicodeEncodeError, RecursionError):
+        return _raw_marker(body)
+    return result
