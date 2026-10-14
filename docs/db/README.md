@@ -150,11 +150,15 @@ Prérequis : Docker, et un fichier `.env` créé à partir de l'exemple (`cp .ex
 **Comptes de démonstration.** `create_db` ne crée `johndoe` (actif) et `alice` (inactive), mot de passe `secret`, que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec l'option `--demo-users`. Les modèles initiaux de `ml_models` sont créés dans tous les cas. **En production, laisser `P5_SEED_DEMO_USERS` à 0 ou absent** : un compte au mot de passe public donnerait accès à toute l'API.
 
 ```bash
-docker compose build
+mkdir -p models mlruns
+docker compose --profile tools build
 docker compose up -d db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
 docker compose run --rm tools python -m app.db.prepare --year 2016
+# Les modèles models/*.cbm ne sont pas versionnés (git) : les entraîner avant de
+# démarrer l'API, sinon toute prédiction répond 503.
+docker compose run --rm tools python -m app.training
 docker compose up -d api
 TOKEN=$(curl -s -X POST localhost:8080/token -d "username=johndoe&password=secret" | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 ID=$(docker compose exec -T db psql -U postgres -d p5 -Atc "SELECT r.building_id FROM building_features f JOIN building_records_raw r ON r.id=f.record_id LIMIT 1")
@@ -162,7 +166,7 @@ curl -s -X POST localhost:8080/model/predict -H "Authorization: Bearer $TOKEN" -
 docker compose exec -T db psql -U postgres -d p5 -c "SELECT path, status_code, user_id FROM api_requests ORDER BY id DESC LIMIT 3"
 ```
 
-La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
+Les fichiers `models/*.cbm` sont ignorés par git : sur un clone neuf, ils n'existent qu'après l'étape `app.training` (environ une minute avec `--no-kumo --cv-splits 2`, plus longtemps avec les réglages par défaut). La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
 
 **Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`. **Avant le merge**, republier `:base` en lançant manuellement le workflow `base-image.yml` (`workflow_dispatch`) ; le workflow `release.yml` exécute un smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) qui fait échouer la release plutôt que de publier une image cassée.
 

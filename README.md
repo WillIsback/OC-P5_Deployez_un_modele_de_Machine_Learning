@@ -114,6 +114,7 @@ docker compose up -d db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
 docker compose run --rm tools python -m app.db.prepare --year 2016
+docker compose run --rm tools python -m app.training   # models/*.cbm (non versionnés)
 docker compose up -d api             # API sur http://localhost:8080
 ```
 
