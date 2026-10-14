@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import update
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
@@ -24,6 +25,9 @@ from app.db.redaction import to_trace
 from app.lib.tools import get_logger
 
 log = get_logger(__name__)
+
+# Base injoignable, connexion rompue ou pool épuisé : indisponibilité (503).
+DB_UNAVAILABLE_ERRORS = (OperationalError, InterfaceError, PoolTimeoutError)
 
 UNTRACED_PATHS = frozenset(
     {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
@@ -117,7 +121,7 @@ class TraceMiddleware:
                 to_trace(body, Headers(scope=scope).get("content-type")),
             )
         except SQLAlchemyError as exc:
-            if not isinstance(exc, (OperationalError, InterfaceError)):
+            if not isinstance(exc, DB_UNAVAILABLE_ERRORS):
                 # Erreur de données : la base est joignable, la requête passe sans trace.
                 log.exception("Trace impossible, requête traitée sans trace")
                 await self.app(scope, replay, send)

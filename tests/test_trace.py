@@ -121,3 +121,32 @@ def test_database_down_returns_503(monkeypatch):
     r = TestClient(app).get("/model/list")
     assert r.status_code == 503
     assert r.json() == {"detail": "Base de données indisponible"}
+
+
+def test_pool_timeout_in_trace_returns_503(client, monkeypatch):
+    """Pool de connexions épuisé : indisponibilité (503), pas requête sans trace."""
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    from app.middleware import trace
+
+    def exhausted(*args, **kwargs):
+        raise PoolTimeout("QueuePool limit reached")
+
+    monkeypatch.setattr(trace, "_insert_request", exhausted)
+    r = client.get("/model/list")
+    assert r.status_code == 503
+    assert r.json() == {"detail": "Base de données indisponible"}
+
+
+def test_pool_timeout_in_route_returns_503(client, auth_headers, monkeypatch):
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+
+    from app.core import prediction_service
+
+    def exhausted(*args, **kwargs):
+        raise PoolTimeout("QueuePool limit reached")
+
+    monkeypatch.setattr(prediction_service, "resolve_features", exhausted)
+    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "Base de données indisponible"}

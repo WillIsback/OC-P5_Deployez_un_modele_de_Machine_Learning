@@ -1,19 +1,21 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import OperationalError
 
-from .middleware.trace import TraceMiddleware
+from .middleware.trace import DB_UNAVAILABLE_ERRORS, TraceMiddleware
 from .routers import auth, model
 
 app = FastAPI()
 app.add_middleware(TraceMiddleware)
 
 
-@app.exception_handler(OperationalError)
-async def database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
+async def database_unavailable(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=503, content={"detail": "Base de données indisponible"}
     )
+
+
+for _error in DB_UNAVAILABLE_ERRORS:
+    app.add_exception_handler(_error, database_unavailable)
 
 
 app.include_router(auth.router)
