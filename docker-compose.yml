@@ -17,7 +17,7 @@ services:
     build: .
     environment:
       SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
-      DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD}@db:5432/p5
+      DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}@db:5432/p5
     depends_on:
       db:
         condition: service_healthy
@@ -33,13 +33,13 @@ services:
     build: .
     profiles: ["tools"]
     environment:
-      SECRET_KEY: ${SECRET_KEY}
-      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      DATABASE_OWNER_URL: postgresql+psycopg://p5_owner:${P5_OWNER_PASSWORD}@db:5432/p5
-      MLFLOW_TRACKING_URI: postgresql+psycopg://p5_mlflow:${P5_MLFLOW_PASSWORD}@db:5432/mlflow
-      P5_OWNER_PASSWORD: ${P5_OWNER_PASSWORD}
-      P5_API_PASSWORD: ${P5_API_PASSWORD}
-      P5_MLFLOW_PASSWORD: ${P5_MLFLOW_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}@db:5432/postgres
+      DATABASE_OWNER_URL: postgresql+psycopg://p5_owner:${P5_OWNER_PASSWORD:?définir P5_OWNER_PASSWORD dans .env}@db:5432/p5
+      MLFLOW_TRACKING_URI: postgresql+psycopg://p5_mlflow:${P5_MLFLOW_PASSWORD:?définir P5_MLFLOW_PASSWORD dans .env}@db:5432/mlflow
+      P5_OWNER_PASSWORD: ${P5_OWNER_PASSWORD:?définir P5_OWNER_PASSWORD dans .env}
+      P5_API_PASSWORD: ${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}
+      P5_MLFLOW_PASSWORD: ${P5_MLFLOW_PASSWORD:?définir P5_MLFLOW_PASSWORD dans .env}
       TRAINING_YEAR: ${TRAINING_YEAR:-2016}
     depends_on:
       db:

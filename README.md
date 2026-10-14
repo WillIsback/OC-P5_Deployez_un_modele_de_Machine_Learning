@@ -263,7 +263,8 @@ Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` 
 
 ```bash
 # 1. Ingérer puis préparer l'année d'entraînement dans PostgreSQL
-#    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent)
+#    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent,
+#    mais uniquement en local avec `uv run` : dans le service tools, ./data est monté en lecture seule)
 uv run python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv [--download]
 uv run python -m app.db.prepare --year 2016
 

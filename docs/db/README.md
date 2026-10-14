@@ -88,7 +88,7 @@ erDiagram
     }
 ```
 
-Le diagramme omet les colonnes de données de `building_records_raw` (miroir typé du CSV), `building_features` et `prediction_inputs` (bloc des 17 features du modèle). Le DDL complet est dans [`schema.sql`](schema.sql), généré par `alembic upgrade head --sql` (voir §4).
+Le diagramme omet les colonnes de données de `building_records_raw` (miroir typé du CSV), `building_features` et `prediction_inputs` (bloc des 17 features du modèle). Le DDL complet est dans [`schema.sql`](schema.sql), généré par `alembic upgrade head --sql` (voir §4). Il ne contient ni les rôles ni les `GRANT` (provisionnés par `app.db.create_db`) et inclut la table `alembic_version`.
 
 ## 2. Choix techniques
 
@@ -128,7 +128,7 @@ Le diagramme omet les colonnes de données de `building_records_raw` (miroir typ
 
 - **`artifact_path` partagé.** Toutes les versions de `catboost-multitarget` pointent vers le même dossier `models/`. Si l'enregistrement dans `ml_models` échoue après l'écriture des fichiers, la version active peut ne pas correspondre aux fichiers `.cbm` servis.
 - **`/model/predict/compare` et Kumo.** Si l'appel Kumo échoue, la route renvoie 503 mais conserve la ligne `prediction_inputs` et la prédiction CatBoost déjà calculée : la trace reflète l'appel réellement exécuté.
-- **Healthcheck.** Le healthcheck du `Dockerfile` appelle `/docs` toutes les 30 secondes ; ces appels sont eux aussi tracés dans `api_requests`.
+- **Healthcheck.** Le healthcheck du `Dockerfile` appelle `/docs` toutes les 30 secondes ; ce chemin figure dans `UNTRACED_PATHS` du middleware de trace, il n'écrit donc rien en base.
 
 ## 3. Rôles et sécurité
 
