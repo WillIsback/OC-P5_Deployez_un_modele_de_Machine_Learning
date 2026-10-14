@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 20
     env:
       # Valeur factice de CI : le code n'a plus de clé de repli.
-      SECRET_KEY: cle-factice-ci-non-secrete
+      SECRET_KEY: cle-factice-ci-non-secrete-de-32-octets-minimum
       # Comptes de démo (johndoe/secret) utilisés par les tests d'API.
       P5_SEED_DEMO_USERS: "1"
       # Postgres injoignable → échec (et non skip silencieux des tests BDD).
