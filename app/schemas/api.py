@@ -40,6 +40,8 @@ TARGETS = {
 class Model(BaseModel):
     id: int
     name: str
+    version: str
+    is_active: bool
     created_at: datetime
 
 
@@ -67,6 +69,15 @@ class EnergyPredictionRequest(BaseModel):
     Has_Steam: bool = False
 
 
+class BuildingPredictionRequest(BaseModel):
+    """Prédiction d'un bâtiment connu ; année la plus récente si absente."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    building_id: int
+    data_year: int | None = None
+
+
 class EnergyPredictionResponse(BaseModel):
     """Prédictions pour les deux cibles du modèle."""
 
@@ -76,6 +87,8 @@ class EnergyPredictionResponse(BaseModel):
     predicted_at: datetime
     units: str = "kBtu/an"
     emissions_units: str = "t CO2e/an"
+    prediction_id: int | None = None
+    request_id: str | None = None
 
 
 class ModelScores(BaseModel):
@@ -105,5 +118,5 @@ class ComparisonPredictionResponse(BaseModel):
         "Comparaison entre CatBoost (modèle entraîné sur les données Seattle) "
         "et Kumo-Tabular (modèle zero-shot / few-shot sans entraînement préalable)"
     )
-    catboost_model_name: str = "catboost-energy-seattle"
+    catboost_model_name: str = "catboost-multitarget"
     kumo_model_name: str = "kumo-tabular-zero-shot"

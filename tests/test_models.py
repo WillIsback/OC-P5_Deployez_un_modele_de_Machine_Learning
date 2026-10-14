@@ -85,3 +85,17 @@ def test_to_dataframe_mapping_and_order():
     assert "PropertyGFABuilding" not in df.columns
     for col in CAT_FEATURES:
         assert pd.api.types.is_string_dtype(df[col])
+
+
+def test_predict_frame_returns_vector_per_target(tmp_path, monkeypatch):
+    for target in ("energy", "emissions"):
+        path = tmp_path / f"{target}.cbm"
+        _train(path)
+        monkeypatch.setitem(model_service.MODEL_PATHS, target, str(path))
+    monkeypatch.setattr(model_service, "_models", {})
+    row = model_service._to_dataframe(_request())
+    df = pd.concat([row, row], ignore_index=True)
+    out = model_service.predict_frame(df)
+    assert set(out) == {"energy", "emissions"}
+    assert out["energy"].shape == (2,)
+    assert (out["energy"] > 0).all()

@@ -67,3 +67,12 @@ def predict(request: EnergyPredictionRequest, target: str) -> float:
 def predict_all(request: EnergyPredictionRequest) -> dict[str, float]:
     """Prédiction pour toutes les cibles."""
     return {target: predict(request, target) for target in TARGETS}
+
+
+def predict_frame(df: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Prédit toutes les cibles pour un DataFrame FEATURE_COLUMNS (unités réelles)."""
+    X = df[FEATURE_COLUMNS].copy()
+    for col in CAT_FEATURES:
+        X[col] = X[col].astype(str)
+    pool = Pool(X, cat_features=CAT_FEATURES)
+    return {target: np.expm1(load_model(target).predict(pool)) for target in TARGETS}
