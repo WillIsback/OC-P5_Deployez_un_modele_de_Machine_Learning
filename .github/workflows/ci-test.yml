@@ -28,6 +28,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
@@ -51,6 +64,8 @@ jobs:
           uv sync --frozen --no-cache --no-install-project
 
       - name: Tests unitaires avec couverture
+        env:
+          TEST_DATABASE_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
         run: |
           set -euo pipefail
           uv run --frozen --no-sync pytest \
