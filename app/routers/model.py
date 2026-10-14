@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..core import metrics_service
@@ -9,6 +10,7 @@ from ..db.mapping import feature_values
 from ..db.models import BuildingFeatures, MlModel, Prediction, PredictionInput
 from ..db.registry import CATBOOST_NAME, KUMO_NAME, NoActiveModel
 from ..db.session import SessionDep
+from ..lib.tools import get_logger
 from ..schemas.api import (
     BuildingPredictionRequest,
     ComparisonPredictionResponse,
@@ -17,6 +19,8 @@ from ..schemas.api import (
     MetricsResponse,
     Model,
 )
+
+log = get_logger(__name__)
 
 router = APIRouter(
     prefix="/model",
@@ -105,12 +109,12 @@ def _run(session: Session, inp: PredictionInput, model_name: str) -> Prediction:
         return ps.run_model(session, inp, model_name)
     except NoActiveModel:
         raise HTTPException(503, f"Aucun modèle actif : {model_name}")
-    except FileNotFoundError as exc:
-        raise HTTPException(503, f"{model_name} : {exc}")
-    except Exception as exc:
-        if model_name != KUMO_NAME:
-            raise
-        raise HTTPException(503, f"Kumo-Tabular : {exc}")
+    except SQLAlchemyError:
+        raise  # géré par le handler « base indisponible »
+    except Exception:
+        log.exception("Échec du modèle %s", model_name)
+        label = "Kumo-Tabular" if model_name == KUMO_NAME else "CatBoost"
+        raise HTTPException(503, f"Modèle {label} indisponible")
 
 
 def _response(

@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import func, select, update
 from synth import EXAMPLE_FEATURES, add_record
 
-from app.core import model_service
+from app.core import kumo_service, model_service
 from app.db import mapping
 from app.db.models import (
     ApiRequest,
@@ -252,3 +252,52 @@ def test_untraced_request_refuses_prediction(
     with db() as s:
         assert s.scalar(select(func.count()).select_from(PredictionInput)) == before
         assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+
+
+def test_model_unexpected_error_503_keeps_input(
+    client, db, auth_headers, buildings, monkeypatch
+):
+    def boom(df):
+        raise RuntimeError("secret /chemin/interne")
+
+    monkeypatch.setattr(model_service, "predict_frame", boom)
+    with db() as s:
+        before = s.scalar(select(func.count()).select_from(PredictionInput))
+    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Modèle CatBoost indisponible"
+    with db() as s:
+        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before + 1
+        assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+
+
+def test_compare_kumo_failure_503_keeps_catboost(
+    client, db, auth_headers, demo_models, buildings, monkeypatch
+):
+    def boom(X, target):
+        raise RuntimeError("kumo hors service")
+
+    monkeypatch.setattr(kumo_service, "predict_batch", boom)
+    with db() as s:
+        before = s.scalar(select(func.count()).select_from(PredictionInput))
+    r = client.post(
+        "/model/predict/compare", json={"building_id": 1}, headers=auth_headers
+    )
+    assert r.status_code == 503
+    assert r.json()["detail"] == "Modèle Kumo-Tabular indisponible"
+    with db() as s:
+        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before + 1
+        assert s.scalar(select(func.count()).select_from(Prediction)) == 1
+
+
+def test_raw_record_without_features_422(client, db, auth_headers, buildings):
+    with db() as s:
+        add_record(s, 3, 2018)
+        s.commit()
+    r = client.post(
+        "/model/predict",
+        json={"building_id": 3, "data_year": 2018},
+        headers=auth_headers,
+    )
+    assert r.status_code == 422
+    assert "hors périmètre" in r.json()["detail"]

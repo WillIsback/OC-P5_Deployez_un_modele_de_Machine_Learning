@@ -57,7 +57,15 @@ def resolve_features(
         return row
     row = session.scalars(base.where(BuildingRecordRaw.data_year == data_year)).first()
     if row is None:
-        if session.scalars(base.limit(1)).first() is None:
+        # Enregistrement brut présent sans features (exclu par prepare) : hors
+        # périmètre ; année absente du brut : introuvable.
+        raw_id = session.scalar(
+            select(BuildingRecordRaw.id).where(
+                BuildingRecordRaw.building_id == building_id,
+                BuildingRecordRaw.data_year == data_year,
+            )
+        )
+        if raw_id is not None:
             raise BuildingOutOfScope(building_id)
         raise YearNotFound(data_year)
     return row
