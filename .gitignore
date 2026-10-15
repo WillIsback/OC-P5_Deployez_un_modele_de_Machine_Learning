@@ -174,3 +174,6 @@ mlruns/
 
 # Données brutes téléchargées (reproductibles via `python -m app.training --download`)
 data/
+
+# Config locale générée par l'extension SonarQube for IDE
+.sonar-config.json
