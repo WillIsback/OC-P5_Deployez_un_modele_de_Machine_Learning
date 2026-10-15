@@ -1,5 +1,21 @@
 # P5 — Déployez un modèle de Machine Learning
 
+[![ci-install](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml/badge.svg?branch=main)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml)
+[![release](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/release.yml)
+[![ci-test](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-test.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-test.yml)
+[![ci-code-quality](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-code-quality.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-code-quality.yml)
+[![ci-security](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-security.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-security.yml)
+[![ci-model-performance](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-model-performance.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-model-performance.yml)
+
+[![Release](https://img.shields.io/github/v/release/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning?sort=semver)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/releases)
+[![Image Docker](https://img.shields.io/badge/ghcr.io-image-2496ED?logo=docker&logoColor=white)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/pkgs/container/oc-p5_deployez_un_modele_de_machine_learning)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
+[![Licence MIT](https://img.shields.io/github/license/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning)](LICENSE)
+
 **Auteur** : William Derue
 **Formation** : [AI Engineer](https://openclassrooms.com/fr/paths/1011-ai-engineer) — OpenClassrooms
 **Projet** : 5 — Déployez un modèle de Machine Learning
@@ -79,37 +95,56 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 ## 🚀 Quickstart
 
-**Prérequis** : Git, Docker avec Compose v2, [uv](https://docs.astral.sh/uv/getting-started/installation/), `curl` (Linux, macOS ou WSL). Ports utilisés : `8080` (API) et `5432` (PostgreSQL). S'ils sont déjà pris, les changer **avant** de lancer le bloc, par exemple `export API_PORT=18080 DB_PORT=15432`.
+Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle), téléchargés, lancent l'API avec le **modèle entraîné livré** (version `baseline`, aucun entraînement nécessaire), puis la vérifient : jeton, recherche de 3 bâtiments et prédiction sur leur identifiant. Ils sont rejoués **tels quels** sur une machine vierge par le workflow `ci-install` ([`scripts/quickstart_test.sh`](scripts/quickstart_test.sh)) : si un bloc casse, la CI échoue.
 
-Depuis un dossier vide, ces commandes clonent le projet, provisionnent la base, entraînent les modèles, lancent l'API puis la vérifient (jeton + prédiction). Elles sont rejouées **telles quelles** sur une machine vierge par le workflow `ci-install` (`scripts/quickstart_test.sh`) : si ce bloc casse, la CI échoue.
+**Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API) et `5432` (PostgreSQL) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 …`.
+
+### 🐳 Utilisateurs — image Docker
+
+Aucun clone : l'image publiée sur GHCR est tirée, et le dossier `p5-energy/` reçoit `docker-compose.yml` et un `.env` aux secrets **générés aléatoirement**.
 
 ```bash
-git clone https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning.git
-cd OC-P5_Deployez_un_modele_de_Machine_Learning
-
-# Configuration de démonstration (comptes johndoe/alice) : changer les mots de passe et SECRET_KEY hors démo
-cp .example.env .env
-
-# Données : CSV 2016 téléchargé depuis l'hôte (ou --download dans le service tools, ./data y est inscriptible)
-uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
-
-# Base et ingestion (features et split inclus), puis API sur http://localhost:8080 avec le modèle livré
-docker compose --profile tools build --pull   # images api + tools sur la dernière base :base (GHCR)
-docker compose up -d --wait db
-docker compose run --rm tools python -m app.db.create_db
-docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-docker compose up -d --wait api
-
-# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment (saisie libre)
-API=http://localhost:${API_PORT:-8080}
-TOKEN=$(curl -fsS -X POST $API/token -d "username=johndoe&password=secret" | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
-curl -fsS -X POST $API/model/predict/features -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"BuildingType":"NonResidential","PrimaryPropertyType":"Small- and Mid-Sized Office","Neighborhood":"BALLARD","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail Store","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
+curl -fsSL https://raw.githubusercontent.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/main/scripts/quickstart.sh | bash
 ```
 
-**Le modèle entraîné est livré** dans `models/` (`energy.cbm`, `emissions.cbm`, scores dans `models/scores.json`) et enregistré comme version `baseline` par `create_db` : aucun entraînement n'est nécessaire pour servir l'API. Pour réentraîner, voir [`docs/training/README.md`](docs/training/README.md).
+Épingler une version : `… | P5_IMAGE=ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:v1.3.2 bash`. Image `linux/amd64` (émulée sur Apple Silicon). Arrêt : `cd p5-energy && docker compose down` (ajouter `-v` pour effacer la base).
 
-Documentation interactive : http://localhost:8080/docs. Arrêt : `docker compose down` (ajouter `-v` pour effacer la base).
+### 🧑‍💻 Développeurs — code source
+
+Prérequis supplémentaires : Git, et [uv](https://docs.astral.sh/uv/getting-started/installation/) pour le développement local (voir plus bas). L'image est construite depuis les sources (`docker-compose.override.yml`, qui monte aussi `./models`) et `.env` est copié depuis `.example.env` (secrets de démonstration : à changer hors démo).
+
+```bash
+git clone https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning.git && cd OC-P5_Deployez_un_modele_de_Machine_Learning && scripts/quickstart.sh --source
+```
+
+Le détail des étapes (une commande `docker compose` chacune) est dans [`scripts/quickstart.sh`](scripts/quickstart.sh) et dans [`docs/db/README.md`](docs/db/README.md#4-mise-en-route).
+
+### Exemple : 3 bâtiments, 3 prédictions
+
+Une fois l'API lancée ([`jq`](https://jqlang.org/) pour lire les réponses) :
+
+```bash
+API=http://localhost:8080
+TOKEN=$(curl -fsS -X POST $API/token -d "username=johndoe&password=secret" | jq -r .access_token)
+
+# 3 bâtiments jamais vus par l'entraînement (les seuls prédictibles par identifiant)…
+IDS=$(curl -fsS "$API/buildings?limit=3" -H "Authorization: Bearer $TOKEN" | jq '.items[].building_id')
+
+# … puis la prédiction de chacun (consommation en kBtu/an, émissions en t CO2e/an)
+for id in $IDS; do
+  curl -fsS -X POST $API/model/predict -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" -d "{\"building_id\": $id}" \
+    | jq -c "{building_id: $id, energy_use_kbtu, ghg_emissions_tco2e}"
+done
+```
+
+```text
+{"building_id":28,"energy_use_kbtu":3088219.81,"ghg_emissions_tco2e":99.24}
+{"building_id":34,"energy_use_kbtu":7466845.71,"ghg_emissions_tco2e":159.23}
+{"building_id":36,"energy_use_kbtu":8614361.36,"ghg_emissions_tco2e":175.49}
+```
+
+Toutes les routes, la saisie libre des features et les codes d'erreur : [`docs/api/README.md`](docs/api/README.md). Jetons, comptes et `SECRET_KEY` : [`docs/api/authentication.md`](docs/api/authentication.md). Documentation interactive : http://localhost:8080/docs.
 
 ---
 
@@ -120,7 +155,7 @@ Documentation interactive : http://localhost:8080/docs. Arrêt : `docker compose
 uv sync
 
 # Lancer l'application en mode développement (http://localhost:8000) : nécessite
-# la base provisionnée par le Quickstart (modèles livrés dans models/)
+# la base provisionnée par le Quickstart développeur (modèles livrés dans models/)
 uv run fastapi dev app/main.py
 
 # Exécuter les tests (les tests PostgreSQL sont ignorés si aucune base n'est joignable)
@@ -132,8 +167,8 @@ uv run ruff check .
 # Formatter
 uv run ruff format .
 
-# Rejouer le Quickstart dans un dossier vide (comme la CI)
-scripts/quickstart_test.sh
+# Rejouer un parcours du Quickstart dans un dossier vide (comme la CI)
+scripts/quickstart_test.sh dev    # ou : user
 ```
 
 Les tests de base de données créent une base `p5_test` via l'URL administrateur `TEST_DATABASE_ADMIN_URL` (par défaut `postgres:$POSTGRES_PASSWORD@localhost:5432`, soit le service `db` de Docker Compose). Sans PostgreSQL joignable, ils sont **ignorés** (skip) ; avec `REQUIRE_TEST_DB=1` (utilisé en CI), ils **échouent** à la place.
@@ -146,7 +181,7 @@ L'API s'appuie sur **PostgreSQL** : dataset structuré (identité des bâtiments
 
 La base est provisionnée et alimentée par le [Quickstart](#-quickstart) (`create_db` puis `ingest` — nettoyage, features et split inclus).
 
-Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. Seul `johndoe` est actif : `alice` est créée **inactive** et `POST /token` lui répond 400 (elle sert à tester le refus d'un compte désactivé). **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
+Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés que si `P5_SEED_DEMO_USERS=1` : **jamais en production**, voir [`docs/api/authentication.md`](docs/api/authentication.md#comptes).
 
 Le service `tools` (profil Compose, non démarré par `up`) est le seul à recevoir les identifiants administrateur et propriétaire ; le service `api` n'utilise que le rôle restreint `p5_api`. Les années 2017–2019 viennent de l'open data de Seattle et sont ramenées au schéma 2016 à l'ingestion. `./data` étant monté en lecture-écriture dans `tools`, ces CSV peuvent être téléchargés directement dans le conteneur (`--download`) ; depuis l'hôte, par exemple :
 
@@ -171,221 +206,10 @@ Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md
 | `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration | `0` (Compose) |
 | `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS` | Modèles CatBoost servis | `models/energy.cbm` / `models/emissions.cbm` |
 | `MODEL_VERSION_PATH` / `MODEL_METRICS_PATH` | Version servie / table de scores de `GET /model/metrics` | `models/version.json` / `models/scores.json` |
+| `P5_IMAGE` | Image des services `api` et `tools` (Compose, hors override de développement) | `ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:latest` |
 | `API_PORT` / `DB_PORT` | Ports hôte des services `api` et `db` (Compose) | `8080` / `5432` |
-| `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./models` et `./mlruns`) | `1000` / `1000` |
+| `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./data`, `./models` et `./mlruns`) | `1000` / `1000` |
 | `TEST_DATABASE_ADMIN_URL` / `REQUIRE_TEST_DB` | Base des tests / `1` : échec au lieu de skip sans base | voir « Développement local » |
-
----
-
-## 🔐 Authentification Bearer JWT
-
-Toutes les routes du router `/model` sont protégées par un **Bearer token** (schéma `HTTPBearer`). Obtenez un token via `POST /token` (exemples sur le port **8080** de Docker Compose ; avec `uv run fastapi dev`, remplacer par `8000`) :
-
-```bash
-curl -X POST http://localhost:8080/token \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=johndoe&password=secret"
-```
-
-Puis utilisez-le sur les routes protégées :
-
-```bash
-curl http://localhost:8080/model/list -H "Authorization: Bearer <TOKEN>"
-```
-
-La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`. Elle est **obligatoire** : le code ne contient aucune clé par défaut, et créer ou vérifier un jeton sans `SECRET_KEY` lève une erreur explicite.
-
----
-
-## ⚡ API de prédiction (CatBoost — Seattle)
-
-La route `POST /model/predict` prédit, à partir d'un `building_id` présent en base (features calculées à l'ingestion), la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
-
-**Retrouver un bâtiment avant de prédire.** `GET /buildings` cherche parmi les bâtiments **jamais vus par l'entraînement** (ni `train` ni `test`) : seuls ceux-là sont consultables et prédictibles par `building_id` (`/model/predict` et `/model/predict/compare` répondent 403 pour un bâtiment vu). Filtres : `q` (nom ou adresse), `year`, `neighborhood`, `building_type`, `limit` (100 au plus), `offset`. Aucune valeur réelle (consommation, émissions) n'est exposée.
-
-```bash
-curl "http://localhost:8080/buildings?q=needle&year=2018" -H "Authorization: Bearer <TOKEN>"
-curl http://localhost:8080/buildings/1 -H "Authorization: Bearer <TOKEN>"   # identité et features par année
-```
-
-Exemple d'appel par identifiant de bâtiment (`data_year` optionnel : par défaut l'année la plus récente disponible) :
-
-```bash
-curl -X POST http://localhost:8080/model/predict \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"building_id": 1}'
-```
-
-La réponse inclut `prediction_id` et `request_id` (en-tête `X-Request-ID`) pour retrouver la trace en base. Codes d'erreur :
-
-- **400** sur `POST /token` : identifiants incorrects ou compte inactif ;
-- **401** sur `/model/*` : jeton absent, invalide ou expiré, ou utilisateur supprimé/désactivé depuis l'émission ;
-- **403** : bâtiment déjà vu par l'entraînement (`train` ou `test`) ;
-- **404** : bâtiment ou année inconnus ;
-- **422** : bâtiment hors périmètre (ex. résidentiel), ou corps de requête invalide (champ inconnu refusé, `extra="forbid"`, ou valeur hors bornes, voir `app/schemas/api.py`) ;
-- **503** : modèle indisponible (aucun modèle actif ou `.cbm` absent), base de données ou traçabilité indisponible (aucune prédiction n'est servie sans trace).
-
-Autres routes protégées :
-
-- `POST /model/predict/compare` : même entrée que `/model/predict` (`building_id`, `data_year`) ; renvoie `catboost_prediction` et `kumo_prediction` (Kumo-Tabular en zero-shot), chacune au format de `/model/predict`, mêmes codes d'erreur ;
-- `GET /model/metrics` : table de scores du dernier entraînement (`models/scores.json`), par cible puis par modèle (`R2`, `MAE`, `MedAE`, `MedAPE_pct`) ; 404 si le fichier est absent.
-
-#### Saisie libre — `POST /model/predict/features`
-
-Pour un bâtiment absent de la base (simulation, test), envoyer directement les features à `POST /model/predict/features` :
-
-```bash
-curl -X POST http://localhost:8080/model/predict/features \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"BuildingType":"NonResidential","PrimaryPropertyType":"Small- and Mid-Sized Office","Neighborhood":"BALLARD","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail Store","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
-```
-
-### Trois exemples réels postérieurs à l'entraînement (DataYear > 2016)
-
-Les exemples ci-dessous proviennent du jeu [Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e), filtré sur `DataYear > 2016`. Ce champ sert à sélectionner les enregistrements et n'est pas une entrée du modèle.
-
-Le jeu actuel n'a pas la taxonomie de 2016 sur laquelle le modèle est entraîné : les payloads ci-dessous appliquent les correspondances de `app/db/harmonize.py`, les mêmes que celles utilisées à l'ingestion des années 2017–2019 (détail : [`docs/db/README.md`](docs/db/README.md), « Harmonisation vers le schéma 2016 »).
-
-| Colonne du jeu 2015-Present | Champ envoyé à l'API | Traitement |
-| ----------------------------- | ---------------------- | ---------- |
-| `EPAPropertyType` | `PrimaryPropertyType` | Table `EPA_TO_PRIMARY` (catégories non listées → `Other`) ; `Office` → `Large Office` si `PropertyGFATotal` ≥ 100 000 sf, sinon `Small- and Mid-Sized Office`. |
-| `BuildingType` | `BuildingType` | Valeur 2016 du bâtiment si elle existe ; sinon `BUILDING_TYPE_FALLBACK` (`Hospital` / `University` → `NonResidential`, `School` → `SPS-District K-12`). |
-| `Largest` / `Second` / `ThirdLargestPropertyUseType` | idem | Libellés renommés depuis 2016 ramenés à leur forme d'origine (`USE_TYPE_LABELS`). |
-| `PropertyGFABuildings` | `PropertyGFABuilding` | L'API renomme ensuite ce champ en `PropertyGFABuilding(s)` pour le modèle. |
-| `SecondLargestPropertyUseTypeGFA` (identifiant Socrata : `secondlargestpropertyuse`) | `SecondLargestPropertyUseTypeGFA` | Surface en pieds carrés. |
-| `NaturalGas(kBtu)` | `Has_NaturalGas` | `true` si la consommation est strictement positive, sinon `false`. |
-| `SteamUse(kBtu)` | `Has_Steam` | `true` si la consommation est strictement positive, sinon `false`. |
-
-Les champs de surface d'usage absents dans la source sont ramenés à `0`; la valeur catégorielle source `NA` est conservée telle quelle. Cette harmonisation reste une approximation : les correspondances ont été établies empiriquement et les écarts résiduels entre millésimes peuvent limiter la qualité des prédictions (voir l'évaluation projetée dans [`docs/db/README.md`](docs/db/README.md)).
-
-Chaque objet JSON ci-dessous est à envoyer séparément à `POST /model/predict/features` (saisie libre).
-
-#### 1. Hôpital — DataYear 2025
-
-Source : `BuildingType` `Hospital` (bâtiment de 2021, sans valeur 2016) → `NonResidential` ; `EPAPropertyType` `Other/Specialty Hospital`, absent de `EPA_TO_PRIMARY` → `Other`.
-
-```json
-{
-  "BuildingType": "NonResidential",
-  "PrimaryPropertyType": "Other",
-  "Neighborhood": "LAKE UNION",
-  "Latitude": 47.626602695626,
-  "Longitude": -122.33047891939,
-  "YearBuilt": 2021,
-  "NumberofBuildings": 1,
-  "NumberofFloors": 5,
-  "PropertyGFAParking": 66459,
-  "PropertyGFABuilding": 131797,
-  "LargestPropertyUseType": "Other/Specialty Hospital",
-  "SecondLargestPropertyUseType": "Parking",
-  "SecondLargestPropertyUseTypeGFA": 0,
-  "ThirdLargestPropertyUseType": "NA",
-  "ThirdLargestPropertyUseTypeGFA": 0,
-  "Has_NaturalGas": true,
-  "Has_Steam": false
-}
-```
-
-#### 2. Bâtiment à usage mixte — DataYear 2025
-
-```json
-{
-  "BuildingType": "NonResidential",
-  "PrimaryPropertyType": "Mixed Use Property",
-  "Neighborhood": "LAKE UNION",
-  "Latitude": 47.653912401735,
-  "Longitude": -122.32544330281,
-  "YearBuilt": 2022,
-  "NumberofBuildings": 1,
-  "NumberofFloors": 5,
-  "PropertyGFAParking": 77291,
-  "PropertyGFABuilding": 216859,
-  "LargestPropertyUseType": "Office",
-  "SecondLargestPropertyUseType": "Other",
-  "SecondLargestPropertyUseTypeGFA": 79578,
-  "ThirdLargestPropertyUseType": "Non-Refrigerated Warehouse",
-  "ThirdLargestPropertyUseTypeGFA": 24058,
-  "Has_NaturalGas": false,
-  "Has_Steam": false
-}
-```
-
-#### 3. Bureau — DataYear 2025
-
-Source : `EPAPropertyType` `Office` ; `PropertyGFATotal` (au moins les 221 508 sf bâtis) ≥ 100 000 sf → `Large Office`.
-
-```json
-{
-  "BuildingType": "NonResidential",
-  "PrimaryPropertyType": "Large Office",
-  "Neighborhood": "DOWNTOWN",
-  "Latitude": 47.605422444475,
-  "Longitude": -122.33588476937,
-  "YearBuilt": 1950,
-  "NumberofBuildings": 1,
-  "NumberofFloors": 11,
-  "PropertyGFAParking": 10537,
-  "PropertyGFABuilding": 221508,
-  "LargestPropertyUseType": "Office",
-  "SecondLargestPropertyUseType": "Parking",
-  "SecondLargestPropertyUseTypeGFA": 26054,
-  "ThirdLargestPropertyUseType": "NA",
-  "ThirdLargestPropertyUseTypeGFA": 0,
-  "Has_NaturalGas": false,
-  "Has_Steam": false
-}
-```
-
-Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` (chemins surchargeables par `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS`).
-
-Réentraîner le modèle (pipeline multi-cible CatBoost + Kumo, suivi MLflow, tests) : voir [`docs/training/README.md`](docs/training/README.md).
-
----
-
-## 📁 Structure du dépôt
-
-```
-.github/
-├── dependabot.yml              # Mise à jour automatique des dépendances
-├── ISSUE_TEMPLATE/              # Templates d'issues (5 types + config)
-├── PULL_REQUEST_TEMPLATE.md     # Template de PR
-├── security-exceptions.yml     # Exceptions de sécurité
-└── workflows/                   # Workflows CI/CD
-    ├── ai-code-review.yml        # Revue de code IA des PR (non bloquante)
-    ├── ai-issue-triage.yml       # Triage IA des issues
-    ├── base-image.yml            # Publication de l'image de base `:base` (GHCR)
-    ├── ci-code-quality.yml       # Qualité du code (lint, format, actionlint)
-    ├── ci-model-performance.yml  # Gate de non-régression des scores du modèle
-    ├── ci-security.yml           # Sécurité (SCA, SAST, secrets, IaC)
-    ├── ci-test.yml               # Tests unitaires + couverture
-    ├── ci-traceability.yml       # Traçabilité issues/PR
-    └── release.yml               # Release automatisée (CD)
-app/                              # Code source (API FastAPI, base, entraînement)
-docs/
-├── ci-cd/README.md               # Documentation du pipeline CI/CD
-├── training/README.md            # Réentraînement du modèle, MLflow
-├── db/
-│   ├── README.md                 # Base PostgreSQL : schéma, choix, rôles, requêtes
-│   └── schema.sql                # DDL généré par Alembic
-├── diagrams/
-│   ├── workflow.d2               # Source D2 du diagramme
-│   └── workflow.svg              # SVG généré
-└── policies/
-    ├── semver.md                 # Politique de versionnement sémantique
-    └── security-gates.md         # Politique des gates de sécurité
-models/                           # Modèle entraîné livré (energy.cbm, emissions.cbm, scores.json) + scores_baseline.json
-tests/                            # Tests pytest (unitaires, API, base PostgreSQL)
-.example.env                      # Modèle de configuration à copier en .env
-alembic.ini                       # Configuration des migrations (app/db/migrations)
-docker-compose.yml                # Services db, api et tools (profil)
-Dockerfile                        # Image de l'API (construite sur l'image :base)
-Dockerfile.base                   # Image de base (dépendances précompilées)
-pyproject.toml / uv.lock          # Dépendances (uv)
-CONTRIBUTING.md                   # Guide de contribution
-RELEASE.md                        # Runbook de release
-```
 
 ---
 
@@ -393,11 +217,13 @@ RELEASE.md                        # Runbook de release
 
 | Document | Description |
 |----------|-------------|
+| [API de prédiction](docs/api/README.md) | Routes, saisie libre, codes d'erreur, modèles servis |
+| [Authentification](docs/api/authentication.md) | Jeton JWT, comptes de démonstration, `SECRET_KEY` |
 | [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows CI/IA/CD, sécurité du pipeline |
 | [Base de données](docs/db/README.md) | Schéma UML, choix techniques, rôles, mise en route, requêtes SQL |
 | [Entraînement](docs/training/README.md) | Réentraînement CatBoost multi-cible, Kumo, suivi MLflow, tests |
 | [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
-| [Runbook Release](RELEASE.md) | Semver, gates CD, rollback, incidents |
+| [Runbook Release](docs/release/README.md) | Semver, gates CD, rollback, incidents |
 | [Politique semver](docs/policies/semver.md) | Règle du max, comportement v0.x |
 | [Politique sécurité](docs/policies/security-gates.md) | Seuils SCA/SAST/secrets, exceptions |
 

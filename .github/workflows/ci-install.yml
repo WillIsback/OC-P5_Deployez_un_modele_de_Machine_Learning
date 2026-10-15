@@ -1,6 +1,8 @@
 # Workflow : Test d'installation (parcours évaluateur)
-# Rejoue le bloc « Quickstart » du README tel quel sur une VM vierge : clone,
-# configuration, données, Docker Compose, entraînement, API et vérification.
+# Rejoue tels quels, sur une VM vierge, les deux blocs « Quickstart » du README :
+#   user : `curl … | bash` (image Docker, sans clone)
+#   dev  : `git clone … && scripts/quickstart.sh --source` (build local)
+# Configuration, données, Docker Compose, API et vérification inclus.
 # scripts/quickstart_test.sh n'ajoute aucune commande : la doc est le test.
 name: ci-install
 
@@ -12,11 +14,14 @@ on:
       - "README.md"
       - "app/**"
       - "docker-compose.yml"
+      - "docker-compose.override.yml"
+      - "models/**"
       - "Dockerfile"
       - "Dockerfile.base"
       - ".example.env"
       - "pyproject.toml"
       - "uv.lock"
+      - "scripts/quickstart.sh"
       - "scripts/quickstart_test.sh"
       - ".github/workflows/ci-install.yml"
   push:
@@ -36,9 +41,13 @@ permissions:
 
 jobs:
   ci-install:
-    name: ci-install
+    name: ci-install (${{ matrix.path }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        path: [user, dev]
 
     steps:
       # Clone vierge : pas de cache, pas de credentials persistés, comme un évaluateur.
@@ -47,20 +56,26 @@ jobs:
         with:
           persist-credentials: false
 
-      # Prérequis annoncés par le README (Docker est déjà présent sur le runner).
-      - name: Installer uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        with:
-          version: "0.13.1"
-          enable-cache: false
+      # Parcours utilisateur sur une PR ou un push : l'image publiée (latest) ne
+      # contient pas encore le code testé, on la construit donc depuis ce checkout.
+      # Le cron et le dispatch testent l'image réellement publiée sur GHCR.
+      - name: Image locale (parcours utilisateur)
+        if: matrix.path == 'user' && (github.event_name == 'pull_request' || github.event_name == 'push')
+        run: |
+          docker build -t p5-energy:ci .
+          {
+            echo "P5_IMAGE=p5-energy:ci"
+            echo "P5_PULL=0"
+          } >> "$GITHUB_ENV"
 
-      # Le `git clone` du README est redirigé vers ce checkout (code de la PR) ;
-      # l'URL du README est tout de même vérifiée (publique et joignable).
-      - name: Quickstart du README
+      # Le `git clone` (dev) ou les fichiers bruts (user) du README sont redirigés
+      # vers ce checkout (code de la PR) ; l'URL du README est tout de même vérifiée.
+      - name: Quickstart du README (${{ matrix.path }})
         env:
           QUICKSTART_CLONE_FROM: ${{ github.workspace }}
           QUICKSTART_KEEP: "1"
-        run: scripts/quickstart_test.sh README.md "$RUNNER_TEMP/quickstart"
+          QUICKSTART_PATH: ${{ matrix.path }}
+        run: scripts/quickstart_test.sh "$QUICKSTART_PATH" README.md "$RUNNER_TEMP/quickstart"
 
       - name: Journaux des conteneurs (en cas d'échec)
         if: failure()

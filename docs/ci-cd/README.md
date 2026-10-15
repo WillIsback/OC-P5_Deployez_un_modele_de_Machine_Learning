@@ -55,6 +55,7 @@ graph TD
 | `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)`, `Synthèse de sécurité` (pas de job `ci-security`) | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
 | `ci-traceability.yml` | `ci-traceability` | Référence issue obligatoire (R1/R3), type de PR valide, cohérence semver (Q7) |
+| `ci-install.yml` | `ci-install (user)`, `ci-install (dev)` (non requis) | Rejoue tels quels les deux blocs « Quickstart » du README sur une VM vierge via `scripts/quickstart_test.sh` : `curl … \| bash` (image Docker ; construite depuis la PR sur `pull_request`/`push`, image GHCR publiée sur le cron hebdomadaire) et `git clone … && scripts/quickstart.sh --source`. Déclenché aussi sur `push` vers `main` et chaque lundi |
 
 > Tous les workflows CI sont déclenchés sur `pull_request` vers `main` (et `workflow_dispatch`), avec une concurrence par ref et `cancel-in-progress: true`.
 >
@@ -101,7 +102,7 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 | `publish` | CHANGELOG (notes) → tag `vX.Y.Z` → GitHub Release → retag de l'image scannée en `vX.Y.Z`/`vX.Y`/`latest` (`docker buildx imagetools create`, **même digest**) → `attest-build-provenance` |
 | `notify-failure` | Si un job échoue sur un `push` : poste un commentaire récapitulatif sur la PR associée au commit, ou à défaut sur le commit |
 
-> L'input `dry_run` (`true` par défaut) exécute `detect` et les gates mais **ne publie rien** (ni tag, ni release, ni image) ; seul un dispatch avec `dry_run: false` publie (voir [RELEASE.md](../../RELEASE.md)).
+> L'input `dry_run` (`true` par défaut) exécute `detect` et les gates mais **ne publie rien** (ni tag, ni release, ni image) ; seul un dispatch avec `dry_run: false` publie (voir [runbook de release](../release/README.md)).
 
 ### Image de base — `base-image.yml`
 
@@ -129,7 +130,7 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 ## 📚 Documentation associée
 
 - [Guide de contribution](../../CONTRIBUTING.md) — cycle Issue → Branche → PR
-- [Runbook de release](../../RELEASE.md) — semver, gates CD, rollback, incidents
+- [Runbook de release](../release/README.md) — semver, gates CD, rollback, incidents
 - [Politique de version sémantique](../policies/semver.md)
 - [Politique des gates de sécurité](../policies/security-gates.md)
 - [Action de revue de code IA `code-review`](https://github.com/WillIsback/code-review) — revue de PR + triage d'issues

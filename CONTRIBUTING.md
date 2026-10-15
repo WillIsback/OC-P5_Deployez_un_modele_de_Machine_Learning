@@ -131,7 +131,7 @@ docker build -f Dockerfile.base -t p5-base .
 docker build --build-arg BASE_IMAGE=p5-base -t <image> .
 ```
 
-Un simple `docker run -p 8080:8080 <image>` ne donne pas une API utilisable : il manque `SECRET_KEY`, `DATABASE_URL` (PostgreSQL) et les modèles `models/*.cbm` (non versionnés, à monter). Utiliser `docker compose` (services `db`, `api` et `tools`), dont la mise en route complète (provisionnement, ingestion, entraînement) est décrite dans [`docs/db/README.md`](docs/db/README.md#4-mise-en-route).
+L'image embarque le modèle livré (`models/energy.cbm`, `models/emissions.cbm`, `models/scores.json`), mais un simple `docker run -p 8080:8080 <image>` ne donne pas une API utilisable : il manque `SECRET_KEY` et `DATABASE_URL` (PostgreSQL provisionné et alimenté). Utiliser `docker compose` (services `db`, `api` et `tools`) : `docker-compose.yml` tire l'image GHCR (`P5_IMAGE`), et `docker-compose.override.yml`, chargé automatiquement depuis un clone, la remplace par un build local et monte `./models`. `scripts/quickstart.sh --source` enchaîne toute la mise en route ; le détail est dans [`docs/db/README.md`](docs/db/README.md#4-mise-en-route).
 
 ---
 
