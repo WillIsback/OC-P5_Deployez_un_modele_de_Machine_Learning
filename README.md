@@ -100,10 +100,11 @@ docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
 docker compose up -d --wait api
 
-# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment
+# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment (saisie libre)
 API=http://localhost:${API_PORT:-8080}
 TOKEN=$(curl -fsS -X POST $API/token -d "username=johndoe&password=secret" | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
-curl -fsS -X POST $API/model/predict -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"building_id": 1}'
+curl -fsS -X POST $API/model/predict/features -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"BuildingType":"NonResidential","PrimaryPropertyType":"Small- and Mid-Sized Office","Neighborhood":"BALLARD","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail Store","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
 ```
 
 **Le modèle entraîné est livré** dans `models/` (`energy.cbm`, `emissions.cbm`, scores dans `models/scores.json`) et enregistré comme version `baseline` par `create_db` : aucun entraînement n'est nécessaire pour servir l'API. Pour réentraîner, voir [`docs/training/README.md`](docs/training/README.md).
