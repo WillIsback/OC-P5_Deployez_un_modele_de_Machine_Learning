@@ -174,7 +174,8 @@ catboost_info/
 mlflow.db
 mlruns/
 
-# Données brutes téléchargées (reproductibles via `python -m app.training --download`)
+# Données brutes téléchargées (reproductibles via app.training.data_processing.ensure_dataset
+# et app.db.harmonize.download_open_data_year)
 data/
 
 # Config locale générée par l'extension SonarQube for IDE

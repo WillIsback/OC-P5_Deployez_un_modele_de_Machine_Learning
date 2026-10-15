@@ -37,10 +37,11 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Vérifier [skip release]
         id: check
@@ -152,6 +153,44 @@ jobs:
           echo "version=skipped" >> $GITHUB_OUTPUT
           echo "bump=none" >> $GITHUB_OUTPUT
 
+  # Évite la course base-image/release : si le push a modifié les dépendances,
+  # base-image.yml tourne en parallèle ; on attend sa fin avant de construire
+  # l'image applicative (sinon le build part d'une :base obsolète).
+  wait-base-image:
+    name: Attente de l'image de base
+    needs: [detect]
+    if: needs.detect.outputs.version != 'skipped' && needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Attendre la fin du workflow base-image (s'il a été déclenché)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA}"
+          echo "Recherche d'un run base-image pour $SHA..."
+          RUN_ID=""
+          for _ in $(seq 1 30); do
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow base-image.yml \
+              --commit "$SHA" --event push --limit 1 --json databaseId \
+              --jq '.[0].databaseId // empty' 2>/dev/null || true)
+            [ -n "$RUN_ID" ] && break
+            sleep 10
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "ℹ️  Aucun run base-image pour ce commit (dépendances inchangées) — rien à attendre."
+            exit 0
+          fi
+          echo "Attente du run base-image $RUN_ID..."
+          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status
+          echo "✅ Image de base à jour."
+
   gate-version-consistency:
     name: gate-version-consistency
     needs: [detect]
@@ -163,10 +202,11 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Vérification de la cohérence de version
         id: consistency
@@ -208,34 +248,28 @@ jobs:
           fi
           echo "✅ $VERSION > $LAST_TAG : avancement valide."
 
-          # Vérification CHANGELOG
-          if [ -f CHANGELOG.md ]; then
-            if grep -q "## \[$VERSION\]" CHANGELOG.md 2>/dev/null || grep -q "## $VERSION" CHANGELOG.md 2>/dev/null; then
-              echo "✅ Entrée CHANGELOG trouvée pour $VERSION."
-            else
-              echo "⚠️  Aucune entrée CHANGELOG pour $VERSION (non bloquant, génération automatique prévue)."
-            fi
-          fi
-
           echo "status=passed" >> $GITHUB_OUTPUT
 
   gate-container-scan:
     name: gate-container-scan
-    needs: [detect]
+    needs: [detect, wait-base-image]
     if: needs.detect.outputs.version != 'skipped' && needs.detect.outputs.version != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
-      status: ${{ steps.scan.outputs.status }}
+      status: ${{ steps.supply-chain.outputs.status }}
+      digest: ${{ steps.build.outputs.digest }}
 
     permissions:
       contents: read
       security-events: write
-      packages: read
+      packages: write
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Calculer le nom d'image (minuscules)
         id: image
@@ -252,26 +286,38 @@ jobs:
       - name: Configurer Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build de l'image (avec cache)
+      # Construit l'image UNE SEULE fois et la scanne. Hors dry-run, elle est
+      # poussée sous un tag candidat, puis retaguée à l'identique par `publish`
+      # (même digest) : l'image publiée est exactement celle scannée ici.
+      - name: Build de l'image (candidat)
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
-          push: false
-          load: true
-          tags: ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}
+          push: ${{ github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true') }}
+          load: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run == true || inputs.dry_run == 'true') }}
+          tags: ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: false
+          provenance: ${{ (github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true')) && 'mode=max' || 'false' }}
+          sbom: ${{ github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true') }}
+
+      - name: Récupérer l'image localement
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMG="${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate"
+          docker image inspect "$IMG" >/dev/null 2>&1 || docker pull "$IMG"
 
       # Le build réussit même si l'image de base GHCR est obsolète (dépendances
       # manquantes) : seul l'import échoue. On bloque la release AVANT tout push
-      # (le job publish dépend de ce job).
+      # final (le job publish dépend de ce job).
       - name: Smoke test des dépendances de l'image
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} \
+          docker run --rm ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate \
             python -c "import psycopg, sqlalchemy, alembic, app.main; print('OK : dépendances et app importables')" \
             || { echo "❌ Image cassée : republier :base via le workflow base-image (workflow_dispatch)."; exit 1; }
 
@@ -283,9 +329,10 @@ jobs:
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${{ github.workspace }}:/workspace" \
-            ghcr.io/aquasecurity/trivy:latest \
+            ghcr.io/aquasecurity/trivy:0.76.0 \
             image \
-            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} \
+            --image-src docker \
+            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate \
             --severity CRITICAL \
             --format sarif \
             --output /workspace/trivy-image.sarif \
@@ -293,19 +340,21 @@ jobs:
 
       - name: Upload SARIF Trivy (container)
         if: ${{ always() && hashFiles('trivy-image.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           sarif_file: trivy-image.sarif
           category: "trivy-container"
 
       - name: Vérifications supply-chain de l'image
+        id: supply-chain
         shell: bash
         run: |
           set -euo pipefail
+          IMG="${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate"
           echo "=== Vérifications de l'image Docker ==="
 
           # Vérifier que l'image a un HEALTHCHECK
-          if docker inspect --format='{{.Config.Healthcheck}}' ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} 2>/dev/null | grep -q 'Test'; then
+          if docker inspect --format='{{.Config.Healthcheck}}' "$IMG" 2>/dev/null | grep -q 'Test'; then
             echo "✅ HEALTHCHECK présent"
           else
             echo "⚠️  HEALTHCHECK non défini dans le Dockerfile"
@@ -313,10 +362,10 @@ jobs:
 
           # Vérifier que l'image n'utilise pas root (si USER est défini)
           echo "ℹ️  Vérification utilisateur non-root effectuée"
-          docker run --rm ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} whoami 2>/dev/null || echo "whoami indisponible"
+          docker run --rm "$IMG" whoami 2>/dev/null || echo "whoami indisponible"
 
           # Taille de l'image
-          SIZE=$(docker images ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} --format='{{.Size}}' --no-trunc 2>/dev/null)
+          SIZE=$(docker images "$IMG" --format='{{.Size}}' --no-trunc 2>/dev/null)
           if [ -n "$SIZE" ]; then
             echo "Taille de l'image : $(numfmt --to=iec $SIZE)"
           fi
@@ -331,6 +380,7 @@ jobs:
       needs.detect.outputs.version != 'skipped'
       && needs.gate-version-consistency.result == 'success'
       && needs.gate-container-scan.result == 'success'
+      && (github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -342,7 +392,7 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -351,21 +401,13 @@ jobs:
         shell: bash
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Installer Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Installer uv
-        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
-        with:
-          version: "latest"
-          cache-dependency-glob: "uv.lock"
-
-      - name: Synchroniser les dépendances
+      - name: Calculer le tag mineur (vX.Y)
+        id: minor
+        shell: bash
         run: |
           set -euo pipefail
-          uv sync --frozen --no-cache --no-install-project
+          VERSION="${{ needs.detect.outputs.version }}"
+          echo "tag=$(echo "$VERSION" | sed -E 's/^(v[0-9]+\.[0-9]+)\..*/\1/')" >> "$GITHUB_OUTPUT"
 
       - name: Générer le CHANGELOG
         id: changelog
@@ -440,27 +482,31 @@ jobs:
       - name: Configurer Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build et push de l'image Docker
-        id: build-and-push
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: |
-            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}
-            ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}.0
-            ${{ steps.image.outputs.name }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
+      # Retag l'image déjà construite et scannée par gate-container-scan : même
+      # digest, donc l'image publiée est exactement celle validée par les gates.
+      - name: Retaguer l'image scannée
+        id: retag
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.image.outputs.name }}"
+          VERSION="${{ needs.detect.outputs.version }}"
+          CANDIDATE="$IMAGE:$VERSION-candidate"
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:${{ steps.minor.outputs.tag }}" \
+            -t "$IMAGE:latest" \
+            "$CANDIDATE"
+          DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" \
+            | awk '/^Digest:/ {print $2; exit}')
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "✅ Image retaguée : $IMAGE:$VERSION, $IMAGE:${{ steps.minor.outputs.tag }}, $IMAGE:latest ($DIGEST)"
 
       - name: Attestation de provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-name: ${{ steps.image.outputs.name }}
-          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          subject-digest: ${{ steps.retag.outputs.digest }}
 
       - name: Vérification post-release
         shell: bash
@@ -471,33 +517,59 @@ jobs:
           echo "Release : $VERSION"
           echo "Tag : $(git tag -l "$VERSION")"
           echo "Image : ${{ steps.image.outputs.name }}:$VERSION"
+          echo "Digest : ${{ steps.retag.outputs.digest }}"
           echo "✅ Release terminée avec succès."
 
   notify-failure:
     name: Notification d'échec
-    needs: [detect, gate-version-consistency, gate-container-scan, publish]
+    needs: [detect, wait-base-image, gate-version-consistency, gate-container-scan, publish]
     if: failure() && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
       issues: write
 
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
-
-      - name: Commenter l'échec
-        uses: actions/github-script@v7
+      - name: Commenter l'échec sur la PR ou le commit
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          VERSION: ${{ needs.detect.outputs.version || 'inconnue' }}
+          GATE_CONSISTENCY: ${{ needs.gate-version-consistency.result }}
+          GATE_CONTAINER: ${{ needs.gate-container-scan.result }}
+          PUBLISH: ${{ needs.publish.result }}
         with:
           script: |
-            const version = '${{ needs.detect.outputs.version || 'inconnue' }}';
-            const body = `## ❌ Release échouée pour la version ${version}
-
-            La pipeline de release a échoué. Consultez les détails :
-            - **Gate version-consistency** : \`${{ needs.gate-version-consistency.result }}\`
-            - **Gate container-scan** : \`${{ needs.gate-container-scan.result }}\`
-            - **Publish** : \`${{ needs.publish.result }}\`
-
-            🔗 Run : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            `;
-            console.log(body);
+            const body = [
+              `## ❌ Release échouée pour la version ${process.env.VERSION}`,
+              '',
+              'La pipeline de release a échoué. Consultez les détails :',
+              `- **Gate version-consistency** : \`${process.env.GATE_CONSISTENCY}\``,
+              `- **Gate container-scan** : \`${process.env.GATE_CONTAINER}\``,
+              `- **Publish** : \`${process.env.PUBLISH}\``,
+              '',
+              `🔗 Run : ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: context.sha,
+            });
+            if (prs.length > 0) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prs[0].number,
+                body,
+              });
+              core.info(`Commentaire posté sur la PR #${prs[0].number}.`);
+            } else {
+              await github.rest.repos.createCommitComment({
+                owner,
+                repo,
+                commit_sha: context.sha,
+                body,
+              });
+              core.info('Commentaire posté sur le commit.');
+            }

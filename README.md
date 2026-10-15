@@ -90,7 +90,7 @@ cd OC-P5_Deployez_un_modele_de_Machine_Learning
 # Configuration de démonstration (comptes johndoe/alice) : changer les mots de passe et SECRET_KEY hors démo
 cp .example.env .env
 
-# Données : CSV 2016 téléchargé depuis l'hôte (data/ est monté en lecture seule dans le service tools)
+# Données : CSV 2016 téléchargé depuis l'hôte (ou --download dans le service tools, ./data y est inscriptible)
 uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
 
 # Base et ingestion (features et split inclus), puis API sur http://localhost:8080 avec le modèle livré
@@ -148,7 +148,7 @@ La base est provisionnée et alimentée par le [Quickstart](#-quickstart) (`crea
 
 Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. Seul `johndoe` est actif : `alice` est créée **inactive** et `POST /token` lui répond 400 (elle sert à tester le refus d'un compte désactivé). **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
 
-Le service `tools` (profil Compose, non démarré par `up`) est le seul à recevoir les identifiants administrateur et propriétaire ; le service `api` n'utilise que le rôle restreint `p5_api`. Les années 2017–2019 viennent de l'open data de Seattle et sont ramenées au schéma 2016 à l'ingestion. Comme pour 2016, le téléchargement doit se faire depuis l'hôte (`--download` ne peut pas écrire dans `./data` depuis le service `tools`), par exemple :
+Le service `tools` (profil Compose, non démarré par `up`) est le seul à recevoir les identifiants administrateur et propriétaire ; le service `api` n'utilise que le rôle restreint `p5_api`. Les années 2017–2019 viennent de l'open data de Seattle et sont ramenées au schéma 2016 à l'ingestion. `./data` étant monté en lecture-écriture dans `tools`, ces CSV peuvent être téléchargés directement dans le conteneur (`--download`) ; depuis l'hôte, par exemple :
 
 ```bash
 for y in 2017 2018 2019; do

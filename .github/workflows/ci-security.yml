@@ -28,12 +28,13 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
         with:
           fail-on-scopes: "runtime"
           fail-on-severity: "high"
@@ -42,14 +43,26 @@ jobs:
           # torch : expression SPDX composée (Apache-2.0 AND Apache-2.0 WITH
           # LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT)
           # -> chaque composant doit figurer dans l'allow-list.
-          allow-licenses: "MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only, LicenseRef-NVIDIA-Proprietary"
+          # LGPL-3.0-only : composant de psycopg (intégration PostgreSQL).
+          allow-licenses: "MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only"
+
+      - name: Valider le registre des exceptions de sécurité
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Registre daté : une exception expirée fait échouer la CI.
+          # PyYAML épinglé, installé dans un venv jetable (pas de paquet système).
+          python3 -m venv "$RUNNER_TEMP/exc-venv"
+          "$RUNNER_TEMP/exc-venv/bin/pip" install --quiet --disable-pip-version-check 'pyyaml==6.0.2'
+          "$RUNNER_TEMP/exc-venv/bin/python" scripts/check_security_exceptions.py
 
       - name: Scan des dépendances avec Trivy (système)
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          # Script et binaire épinglés à la même version (v0.76.0).
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.76.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.76.0
           trivy fs "${GITHUB_WORKSPACE}" \
             --severity HIGH,CRITICAL \
             --skip-dirs "${GITHUB_WORKSPACE}/.venv" \
@@ -59,7 +72,7 @@ jobs:
 
       - name: Upload SARIF Trivy
         if: ${{ always() && hashFiles('trivy-fs.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           sarif_file: trivy-fs.sarif
           category: "trivy-fs"
@@ -75,21 +88,22 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Initialiser CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           languages: "python"
           queries: security-and-quality
 
       - name: Autobuild CodeQL
-        uses: github/codeql-action/autobuild@v4
+        uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
 
       - name: Analyse CodeQL (upload automatique)
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           category: "/language:python"
 
@@ -103,43 +117,43 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Scan Gitleaks (range de la PR)
+      - name: Scan Gitleaks (historique de la PR)
+        id: gitleaks
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # Binaire officiel Gitleaks (évite une image Docker refusée).
-          go install github.com/zricethezav/gitleaks/v8@latest
+          # Binaire officiel Gitleaks épinglé (évite une image Docker refusée).
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
           GITLEAKS="$(go env GOPATH)/bin/gitleaks"
+          # Scan de la plage de commits de la PR (un secret ajouté puis supprimé
+          # dans la PR reste détecté) ; hors PR, scan de l'arbre/historique.
+          LOG_OPTS=()
+          if [ -n "${BASE_SHA:-}" ] && [ -n "${HEAD_SHA:-}" ]; then
+            LOG_OPTS=(--log-opts="${BASE_SHA}..${HEAD_SHA}")
+          fi
+          EXIT_CODE=0
           "$GITLEAKS" detect \
             --source "${{ github.workspace }}" \
             --config "${{ github.workspace }}/.gitleaks.toml" \
             --report-format sarif \
             --report-path "${{ github.workspace }}/gitleaks.sarif" \
+            --redact \
             --verbose \
-            --no-git \
+            "${LOG_OPTS[@]}" \
             --exit-code 1 || EXIT_CODE=$?
-          if [ "${EXIT_CODE:-0}" -ne 0 ] && [ -f "${{ github.workspace }}/gitleaks.sarif" ]; then
-            echo "🔍 Fuite(s) détectée(s). Voir le rapport SARIF."
-          fi
-
-      - name: Vérifier le rapport Gitleaks
-        id: gitleaks-report
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f "${{ github.workspace }}/gitleaks.sarif" ]; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Upload SARIF Gitleaks
-        if: always() && steps.gitleaks-report.outputs.found == 'true'
-        uses: github/codeql-action/upload-sarif@v4
+        if: ${{ always() && steps.gitleaks.outputs.exit_code != '0' && hashFiles('gitleaks.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           sarif_file: gitleaks.sarif
           category: "gitleaks"
@@ -161,6 +175,14 @@ jobs:
             fi
           done
 
+      - name: Échouer si une fuite de secret est détectée
+        if: always() && steps.gitleaks.outputs.exit_code != '0'
+        shell: bash
+        run: |
+          echo "❌ Gitleaks a détecté au moins une fuite de secret."
+          echo "   Voir le rapport SARIF (catégorie « gitleaks »)."
+          exit 1
+
   iac-scan:
     name: IaC / Dockerfile Scan (Trivy config)
     runs-on: ubuntu-latest
@@ -171,13 +193,16 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Scan IaC avec Trivy
         shell: bash
         run: |
           set -euo pipefail
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          # Script et binaire épinglés à la même version (v0.76.0).
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.76.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.76.0
           trivy config "${{ github.workspace }}" \
             --severity HIGH,CRITICAL \
             --format sarif \
@@ -186,7 +211,7 @@ jobs:
 
       - name: Upload SARIF IaC
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
           sarif_file: trivy-iac.sarif
           category: "trivy-iac"
@@ -203,7 +228,9 @@ jobs:
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Analyser les résultats des jobs
         id: results
@@ -235,7 +262,7 @@ jobs:
           cat summary.md
 
       - name: Publier le commentaire de synthèse
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const fs = require('fs');

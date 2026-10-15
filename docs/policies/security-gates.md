@@ -8,7 +8,7 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 |------|-------|---------------|
 | **SCA** (Software Composition Analysis) | `dependency-review-action` + `trivy fs` | HIGH, CRITICAL |
 | **SAST** (Static Analysis) | `codeql` | Nouvelles alertes `error` ou sécurité `high`/`critical`, via la règle `code_scanning` du ruleset (le job lui-même n'échoue pas) |
-| **Secret Leak** | `gitleaks` | Aucun : non bloquant actuellement (voir ci-dessous) |
+| **Secret Leak** | `gitleaks` | Fuite détectée (bloquant, après upload SARIF) |
 | **IaC / Dockerfile** | `trivy config` | HIGH, CRITICAL |
 
 > Ces quatre jobs sont des status checks requis par le ruleset « Protection de main » : un job en échec bloque le merge. Les gates elles-mêmes restent permissives là où le tableau l'indique (CodeQL, Gitleaks) : un job vert ne garantit donc pas l'absence d'alerte.
@@ -19,10 +19,9 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 - **Écosystème** : pip (Python), Docker, GitHub Actions
 - **Licences** : seules les licences de l'allowlist `allow-licenses` de `ci-security.yml` sont autorisées :
-  `MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only, LicenseRef-NVIDIA-Proprietary`
+  `MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only`
   - `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`, `BSL-1.0` : composants de l'expression SPDX composée de `torch` ;
-  - `LGPL-3.0-only` : licence de `psycopg` (ajoutée avec l'intégration PostgreSQL) ;
-  - `LicenseRef-NVIDIA-Proprietary` : ajoutée avec le pipeline d'entraînement (PR #10, qui introduit `torch` et `structured-data-models`, dépendance git hébergée par NVIDIA). Le paquet exact qui la requiert n'est pas identifiable dans `uv.lock` (torch y est en version CPU, sans paquet `nvidia-*`).
+  - `LGPL-3.0-only` : licence de `psycopg` (ajoutée avec l'intégration PostgreSQL).
 - **Scopes** : les dépendances `runtime` sont inspectées ; `dev`/`test` sont exclues
 
 ### SAST — Code
@@ -33,8 +32,8 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 ### Secrets
 
-- **Scan** : `gitleaks detect --no-git` → analyse de l'**arbre de travail** du checkout (pas de l'historique ni du range de commits de la PR), avec la configuration `.gitleaks.toml`
-- **Non bloquant** : la commande est lancée avec `--exit-code 1 || EXIT_CODE=$?` ; une fuite est signalée dans les logs et le SARIF est uploadé, mais le job reste vert (voir #34)
+- **Scan** : `gitleaks detect` couvre la **plage de commits de la PR** (`--log-opts "<base>..<head>"`, checkout `fetch-depth: 0`) ; hors PR, l'historique du dépôt est scanné. Un secret ajouté puis supprimé dans la PR est donc détecté.
+- **Bloquant** : une fuite détectée fait échouer le job, **après** l'upload du SARIF (rapport conservé dans Code Scanning).
 - **Fichiers d'exclusion** : une étape informative liste les motifs sensibles (`.env`, `*.key`, `*.pem`, `credentials`, `secrets`, `token`) couverts par `.gitignore` et `.dockerignore`. Elle n'échoue jamais ; `.dockerignore` n'existe pas dans le dépôt (l'étape affiche « absent »)
 - **Protection complémentaire** : le *push protection* du secret scanning GitHub est activé au niveau du dépôt (paramètres de sécurité, pas un ruleset)
 
@@ -46,21 +45,21 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 ## 🧾 Exceptions
 
-Les exceptions de sécurité sont **documentées** dans `.github/security-exceptions.yml`.
+Les exceptions de sécurité sont recensées dans `.github/security-exceptions.yml`, **validé par la CI** : l'étape « Valider le registre des exceptions de sécurité » de `ci-security` exécute `scripts/check_security_exceptions.py`. Une exception expirée, non datée, non motivée, non signée ou sans identifiant fait échouer le job.
 
-> ⚠️ Ce fichier n'est lu par **aucun** workflow : il n'a aucun effet sur les scans. Les règles ci-dessous sont une convention de revue, pas un contrôle automatisé. Les deux exceptions présentes (`S8541`, omission de `uv --no-build`) ont expiré le 2026-04-10 sans conséquence sur la CI (voir #36).
-
-**Règles (convention) :**
-1. Chaque exception DOIT avoir une date d'expiration (`expires: YYYY-MM-DD`)
+**Règles (appliquées par la CI) :**
+1. Chaque exception DOIT avoir une date d'expiration (`expires: YYYY-MM-DD`) postérieure à la date du jour
 2. Chaque exception DOIT être motivée (`reason:`)
 3. Chaque exception DOIT être signée d'un auteur (`author:`)
-4. Une exception sans expiration doit être refusée en revue (aucun workflow ne le vérifie)
+4. Chaque exception DOIT porter un identifiant (`cve:`)
 
 **Processus d'exception :**
 1. Détection d'une fausse positive ou vulnérabilité non applicable
 2. Création d'une entrée dans `security-exceptions.yml` avec expiration
 3. Revue dans la PR
-4. Mergée, elle sert de trace documentaire ; l'analyse CI ne la prend **pas** en compte
+4. Mergée, elle est validée (datée, motivée, signée) par la CI ; son **application** automatique par l'outil concerné reste une convention de revue
+
+Les deux exceptions présentes (`S8541`, omission volontaire de `uv --no-build` pour la dépendance git `structured-data-models`) ont été renouvelées au 2027-04-10.
 
 ## 🚦 Gates CD (Release)
 
@@ -71,6 +70,7 @@ Les gates de release (`release.yml`) conditionnent le job `publish` :
 | `gate-version-consistency` | Tag inexistant (local et distant), version ≠ dernier tag | Bloque la publication |
 | `gate-container-scan` — smoke test | Import de `psycopg`, `sqlalchemy`, `alembic`, `app.main` dans l'image construite | Bloque la publication |
 | `gate-container-scan` — `trivy image` | CRITICAL uniquement | Bloque la publication |
+| `gate-container-scan` → `publish` | Image construite une fois, retaguée par `publish` (`docker buildx imagetools create`) | L'image publiée est celle scannée (même digest) |
 | HEALTHCHECK | Présence affichée | Avertissement seulement |
 | Utilisateur non-root | `whoami` affiché | Information seulement, non vérifié |
 | Taille d'image | Affichée | Information seulement, aucun plafond |

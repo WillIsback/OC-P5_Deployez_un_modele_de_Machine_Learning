@@ -53,7 +53,8 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./data:/app/data:ro
+      # Inscriptible : `app.db.ingest --download` peut y télécharger les CSV.
+      - ./data:/app/data
       # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
       - ./models:/app/models
       # Artefacts MLflow (les métadonnées sont dans la base `mlflow`).

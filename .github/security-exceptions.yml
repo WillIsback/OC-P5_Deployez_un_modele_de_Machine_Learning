@@ -1,6 +1,7 @@
 # Fichier d'exceptions de sécurité pour les analyses CI
 # Chaque exception DOIT avoir une date d'expiration.
-# Les exceptions non datées seront rejetées par le workflow de sécurité.
+# Validé par scripts/check_security_exceptions.py (étape « registre des
+# exceptions » de ci-security.yml) : une exception expirée fait échouer la CI.
 ---
 exceptions:
   # Exception documentée : omission volontaire de `uv --no-build`.
@@ -12,7 +13,7 @@ exceptions:
       n'existe que sur GitHub (pas sur PyPI) et doit être buildée à l'installation.
       Les workflows et le Dockerfile sont déjà couverts par actionlint, zizmor et
       Trivy config.
-    expires: "2026-04-10"
+    expires: "2027-04-10"
     author: "WillIsback"
     path: ".github/workflows/*"
   - cve: S8541
@@ -20,7 +21,7 @@ exceptions:
       `--no-build` est volontairement omis : la dépendance `structured-data-models`
       n'existe que sur GitHub (pas sur PyPI) et doit être buildée à l'installation.
       Le Dockerfile est déjà couvert par Trivy config.
-    expires: "2026-04-10"
+    expires: "2027-04-10"
     author: "WillIsback"
     path: "Dockerfile"
   #

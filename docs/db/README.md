@@ -145,7 +145,7 @@ Prérequis : Docker, et un fichier `.env` créé à partir de l'exemple (`cp .ex
 
 **Comptes de démonstration.** `create_db` ne crée `johndoe` (actif) et `alice` (inactive), mot de passe `secret`, que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec l'option `--demo-users`. Les modèles initiaux de `ml_models` sont créés dans tous les cas. **En production, laisser `P5_SEED_DEMO_USERS` à 0 ou absent** : un compte au mot de passe public donnerait accès à toute l'API.
 
-**Données sources.** `data/` est ignoré par git et monté **en lecture seule** dans le service `tools` (`./data:/app/data:ro`) : l'option `--download` d'`app.db.ingest` ne peut donc pas écrire le CSV depuis le conteneur. Sur un clone neuf, télécharger le CSV 2016 depuis l'hôte (`uv sync` au préalable) :
+**Données sources.** `data/` est ignoré par git et monté en lecture-écriture dans le service `tools` (`./data:/app/data`) : l'option `--download` d'`app.db.ingest` peut donc écrire le CSV depuis le conteneur. Sur un clone neuf, on peut aussi télécharger le CSV 2016 depuis l'hôte (`uv sync` au préalable) :
 
 ```bash
 uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
@@ -171,10 +171,9 @@ Les fichiers `models/*.cbm` sont ignorés par git : sur un clone neuf, ils n'exi
 
 **Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`.
 
-Côté CI, `base-image.yml` se déclenche sur un push dans `main` qui modifie `pyproject.toml`, `uv.lock` ou `Dockerfile.base`, mais `release.yml` part **en parallèle** sur le même push, sans l'attendre : la release peut donc être construite sur l'ancienne `:base`. Le workflow `release.yml` exécute un smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) qui fait échouer la release plutôt que de publier une image cassée. Deux façons de s'en prémunir :
+Côté CI, `base-image.yml` se déclenche sur un push dans `main` qui modifie `pyproject.toml`, `uv.lock` ou `Dockerfile.base`. Le job `wait-base-image` de `release.yml` détecte ce run et **attend sa fin** avant de construire l'image applicative : la release part toujours d'une `:base` à jour. Le smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) reste un filet de sécurité.
 
-- **après le merge** (recommandé) : si le smoke test échoue sur `ModuleNotFoundError`, attendre la fin du run `base-image`, puis relancer la release (`gh run rerun <id>`) ;
-- **avant le merge** : lancer `base-image.yml` manuellement (`workflow_dispatch`) en choisissant la branche de la PR (`gh workflow run base-image.yml --ref <branche>`). Attention : le workflow pousse **toujours** le tag `:base`, il n'existe pas de tag par branche. Cette base remplace donc celle de `main` pour tous les builds jusqu'au prochain run sur `main` ; ne le faire que si la PR va être mergée.
+Pour tester une PR avant merge, lancer `base-image.yml` manuellement (`workflow_dispatch`) en choisissant la branche de la PR (`gh workflow run base-image.yml --ref <branche>`). Attention : le workflow pousse **toujours** le tag `:base`, il n'existe pas de tag par branche. Cette base remplace donc celle de `main` pour tous les builds jusqu'au prochain run sur `main` ; ne le faire que si la PR va être mergée.
 
 ### Entraînement, évaluation et DDL
 
@@ -201,13 +200,12 @@ docker compose run --rm -e MLFLOW_EXPERIMENT=seattle-energy-docker tools python 
 
 ### Années de production 2017–2019
 
-Les années 2017, 2018 et 2019 proviennent de l'open data de Seattle ([Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e/about_data)). `data/` n'est pas versionné et il est monté en lecture seule dans `tools` : télécharger les CSV depuis l'hôte (`download_open_data_year` récupère l'export complet et n'en garde que l'année demandée ; un fichier déjà présent n'est pas retéléchargé), puis ingérer dans le conteneur sans `--download`.
+Les années 2017, 2018 et 2019 proviennent de l'open data de Seattle ([Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e/about_data)). `data/` n'est pas versionné et il est monté en lecture-écriture dans `tools` : les CSV peuvent être téléchargés et ingérés directement dans le conteneur (`--download`), ou récupérés depuis l'hôte puis ingérés sans `--download`.
 
 ```bash
-uv run python -c "from app.db.harmonize import download_open_data_year as d; [d(y, f'data/{y}_Building_Energy_Benchmarking.csv') for y in (2017, 2018, 2019)]"
 for y in 2017 2018 2019; do
   docker compose run --rm tools python -m app.db.ingest --year $y \
-    --csv data/${y}_Building_Energy_Benchmarking.csv
+    --csv data/${y}_Building_Energy_Benchmarking.csv --download
 done
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 ```

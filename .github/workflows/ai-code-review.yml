@@ -25,9 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: ctx
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          echo "number=${{ github.event.workflow_run.pull_requests[0].number }}" >> "$GITHUB_OUTPUT"
-          echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: AI Code Review
         uses: WillIsback/code-review@629ce71d98059ec4b70b7d3ab93094fa39483591 # v0.7.0

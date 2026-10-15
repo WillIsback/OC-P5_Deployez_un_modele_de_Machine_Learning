@@ -30,13 +30,14 @@ graph TD
     PR -->|review| Merge["Merge dans main"]
     Merge -->|"si pyproject.toml / uv.lock / Dockerfile.base modifiés"| Base["Workflow base-image<br/>(image :base sur GHCR)"]
     Merge --> Detect{"Workflow release<br/>detect"}
-    Base -.->|"FROM :base (aucune dépendance entre workflows)"| G2
+    Base -->|"fin du run"| Wait["wait-base-image"]
     Detect -->|"version ≠ skipped"| G1["gate-version-consistency"]
-    Detect -->|"version ≠ skipped"| G2["gate-container-scan<br/>(build · smoke test · Trivy CRITICAL)"]
+    Detect -->|"version ≠ skipped"| Wait
+    Wait --> G2["gate-container-scan<br/>(build · smoke test · Trivy CRITICAL)"]
     G1 -->|PASS| Publish["publish"]
     G2 -->|PASS| Publish
-    Publish --> Release["CHANGELOG → tag vX.Y.Z → GitHub Release"]
-    Publish --> Docker["Image Docker GHCR + SBOM + provenance"]
+    Publish --> Release["Notes de release → tag vX.Y.Z → GitHub Release"]
+    Publish --> Docker["Retag de l'image scannée (même digest)<br/>+ SBOM + provenance"]
 ```
 
 </details>
@@ -49,24 +50,24 @@ graph TD
 
 | Workflow | Nom de job (check context) | Responsabilité |
 |----------|---------------------------|----------------|
-| `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, validation du titre de PR (regex Conventional Commits, pas commitlint), hadolint, actionlint, étape « zizmor » (voir ci-dessous), lockfile |
-| `ci-test.yml` | `ci-test` | Tests unitaires + couverture (service PostgreSQL), seuil global 70 % (bloquant), seuil incrémental 80 % (non bloquant), dry-run applicatif, matrice Python 3.11/3.12 |
+| `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, validation du titre de PR (regex Conventional Commits, pas commitlint), hadolint, actionlint, zizmor (voir ci-dessous), lockfile |
+| `ci-test.yml` | `ci-test` | Tests unitaires + couverture (service PostgreSQL), seuil global 70 % (bloquant), seuil incrémental 80 % (non bloquant), dry-run applicatif, matrice Python 3.12/3.13 |
 | `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)`, `Synthèse de sécurité` (pas de job `ci-security`) | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
 | `ci-traceability.yml` | `ci-traceability` | Référence issue obligatoire (R1/R3), type de PR valide, cohérence semver (Q7) |
 
 > Tous les workflows CI sont déclenchés sur `pull_request` vers `main` (et `workflow_dispatch`), avec une concurrence par ref et `cancel-in-progress: true`.
 >
-> **Checks requis** : le ruleset « Protection de main » exige `ci-code-quality`, `ci-test (3.11)`, `ci-test (3.12)`, `ci-traceability`, `ci-model-performance`, `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)` (émis par GitHub Actions) et `SonarCloud Code Analysis` (application SonarQube Cloud). Chaque contexte est lié à l'application qui l'émet (`integration_id`), ce qui empêche un autre acteur de le signaler. Le ruleset impose aussi le merge **squash** uniquement et une règle `code_scanning` CodeQL (alertes `errors` et sécurité `high_or_higher`). Renommer un job ou une entrée de matrice impose de mettre à jour le ruleset, sinon les PR restent bloquées en attente du check.
+> **Checks requis** : le ruleset « Protection de main » exige `ci-code-quality`, `ci-test (3.12)`, `ci-test (3.13)`, `ci-traceability`, `ci-model-performance`, `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)` (émis par GitHub Actions) et `SonarCloud Code Analysis` (application SonarQube Cloud). Chaque contexte est lié à l'application qui l'émet (`integration_id`), ce qui empêche un autre acteur de le signaler. Le ruleset impose aussi le merge **squash** uniquement et une règle `code_scanning` CodeQL (alertes `errors` et sécurité `high_or_higher`). Renommer un job ou une entrée de matrice impose de mettre à jour le ruleset, sinon les PR restent bloquées en attente du check.
 
-**Précisions sur l'existant (non corrigé)** :
+**Précisions sur l'existant** :
 
 - **Titre de PR** : l'étape « commitlint » est une simple regex sur le titre de la PR : `^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert)(\(.+\))?!?: .+`. Le type `style` n'y figure pas.
-- **« zizmor »** : malgré son nom, l'étape exécute `ruff check --select S` (via `astral-sh/ruff-action`) sur `.github/workflows/` en `continue-on-error: true`. Elle n'est donc pas bloquante, et ce répertoire ne contient que des fichiers YAML que ruff n'analyse pas : zizmor n'est pas réellement exécuté (voir #35).
+- **zizmor** : l'étape exécute réellement `uvx zizmor@1.31.0 --min-severity high` sur `.github/workflows/`, uploade le SARIF et échoue sur toute trouvaille de sévérité « high ». Les `dangerous-triggers` justifiés (`workflow_run` de `ai-code-review.yml`) sont neutralisés dans `.github/zizmor.yml`.
 - **Couverture incrémentale** : `diff-cover --fail-under=80 … || true` → le résultat est affiché mais n'échoue jamais.
 - **Dry-run release** (`ci-test`) : simulé — le script Python affiche un dernier tag codé en dur (`v0.0.1`) et ne lit ni les tags ni les commits. Seul le « dry-run applicatif » (import de `app.main`) teste réellement quelque chose.
 - **PostgreSQL** : `ci-test` démarre un service `postgres:17-alpine` et définit `REQUIRE_TEST_DB=1` : si la base est injoignable, les tests BDD échouent au lieu d'être ignorés.
-- **Matrice Python** : `ci-test` tourne sur 3.11 et 3.12, alors que `pyproject.toml` impose `requires-python = ">=3.12"` ; l'entrée 3.11 est incohérente avec le projet (voir #38).
+- **Matrice Python** : `ci-test` tourne sur 3.12 (borne minimale de `requires-python`) et 3.13.
 
 ### IA — Revue de code & triage (non bloquant)
 
@@ -94,12 +95,13 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 | Job | Rôle |
 |-----|------|
 | `detect` | Calcule la version semver depuis le dernier tag Git (max des bumps). Seuls `feat`, `fix`, `perf` ou un breaking change `type!:` déclenchent une release ; sinon `version=skipped`. Un commit HEAD dont le sujet contient `[skip release]` court-circuite tout |
-| `gate-version-consistency` | Vérifie que le tag n'existe pas (local et distant) et que la version avance ; écart avec `pyproject.toml` et CHANGELOG seulement signalés |
-| `gate-container-scan` | Build l'image Docker, **smoke test** (import de `psycopg`, `sqlalchemy`, `alembic`, `app.main` dans l'image), scan Trivy (seuil CRITICAL, bloquant) ; HEALTHCHECK, utilisateur et taille seulement affichés (non bloquants) |
-| `publish` | CHANGELOG (notes) → tag `vX.Y.Z` → GitHub Release → build & push de l'image GHCR (SBOM + provenance) → `attest-build-provenance` |
-| `notify-failure` | Si un job échoue sur un `push` : construit un message récapitulatif et l'affiche dans les logs (`console.log`) ; **rien n'est posté** sur la PR ni sur une issue |
+| `wait-base-image` | Si le push a modifié les dépendances (`pyproject.toml`, `uv.lock`, `Dockerfile.base`), attend la fin du run `base-image` du même commit avant de construire l'image applicative |
+| `gate-version-consistency` | Vérifie que le tag n'existe pas (local et distant) et que la version avance ; écart avec `pyproject.toml` seulement signalé |
+| `gate-container-scan` | Build l'image Docker **une seule fois** (poussée en `<version>-candidate` hors dry-run), **smoke test** (import de `psycopg`, `sqlalchemy`, `alembic`, `app.main` dans l'image), scan Trivy (seuil CRITICAL, bloquant) ; HEALTHCHECK, utilisateur et taille seulement affichés (non bloquants) |
+| `publish` | CHANGELOG (notes) → tag `vX.Y.Z` → GitHub Release → retag de l'image scannée en `vX.Y.Z`/`vX.Y`/`latest` (`docker buildx imagetools create`, **même digest**) → `attest-build-provenance` |
+| `notify-failure` | Si un job échoue sur un `push` : poste un commentaire récapitulatif sur la PR associée au commit, ou à défaut sur le commit |
 
-> L'input `dry_run` est déclaré mais lu par aucun job : un `workflow_dispatch` publie réellement (voir [RELEASE.md](../../RELEASE.md)).
+> L'input `dry_run` (`true` par défaut) exécute `detect` et les gates mais **ne publie rien** (ni tag, ni release, ni image) ; seul un dispatch avec `dry_run: false` publie (voir [RELEASE.md](../../RELEASE.md)).
 
 ### Image de base — `base-image.yml`
 
@@ -109,19 +111,16 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 | Produit | `ghcr.io/<owner>/<repo>:base` (dépendances précompilées), consommée par le `Dockerfile` applicatif (`ARG BASE_IMAGE=…:base`) |
 | Concurrence | `base-image-main`, `cancel-in-progress: true` |
 
-**Course base-image / release au merge** : les deux workflows démarrent en parallèle sur le même push, sans dépendance entre eux. Si la PR modifie les dépendances, `gate-container-scan` peut construire l'image à partir de l'ancien `:base` : le smoke test échoue alors (dépendance manquante) et la release est avortée avant toute publication. Procédure : attendre la fin de `base-image`, puis relancer le run `release` en échec (ou relancer `base-image` via `workflow_dispatch` si nécessaire).
+**Course base-image / release au merge (résolue)** : `base-image.yml` et `release.yml` démarrent en parallèle sur le même push. Le job `wait-base-image` de `release.yml` détecte le run `base-image` du même commit et **attend sa fin** : `gate-container-scan` construit donc toujours à partir d'une `:base` à jour. Le smoke test reste un filet de sécurité.
 
 
 ---
 
 ## 🔒 Sécurité du pipeline
 
-- **Permissions** : chaque workflow déclare `permissions:` au niveau workflow (lecture par défaut). Seuls les jobs de `ci-security.yml` et les jobs `gate-container-scan`, `publish` et `notify-failure` de `release.yml` redéfinissent leurs permissions ; les autres jobs héritent du niveau workflow.
-- **Épinglage des actions** — état réel :
-  - épinglées par SHA : `astral-sh/setup-uv`, `astral-sh/ruff-action`, `hadolint/hadolint-action`, `docker/login-action`, `docker/setup-buildx-action`, `docker/build-push-action`, `WillIsback/code-review` ;
-  - référencées par tag majeur : `actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4`, `actions/github-script@v7`, `actions/dependency-review-action@v4`, `actions/attest-build-provenance@v2`, `github/codeql-action/*@v4`.
-- **Outils non épinglés** : `uv` (`version: "latest"`), trivy (script `install.sh` de la branche `main` dans `ci-security`, image `ghcr.io/aquasecurity/trivy:latest` dans `release`), actionlint (script de la branche `main`), gitleaks (`go install …@latest`).
-- **Analyse du pipeline** : `actionlint` (bloquant) dans `ci-code-quality.yml` ; l'étape « zizmor » n'exécute pas zizmor (voir plus haut).
+- **Permissions** : chaque workflow déclare `permissions:` au niveau workflow (lecture par défaut). Les jobs de `ci-code-quality.yml` (upload SARIF zizmor), de `ci-security.yml`, et les jobs `wait-base-image`, `gate-container-scan`, `publish` et `notify-failure` de `release.yml` redéfinissent leurs permissions ; les autres jobs héritent du niveau workflow.
+- **Épinglage** — toutes les actions sont épinglées par SHA (`actions/*`, `github/codeql-action/*`, `docker/*`, `astral-sh/setup-uv`, `hadolint/hadolint-action`, `WillIsback/code-review`) et tous les outils par version : uv `0.13.1`, trivy `v0.76.0` (script et binaire du même tag), actionlint `1.7.12`, gitleaks `v8.30.1`, zizmor `1.31.0`.
+- **Analyse du pipeline** : `actionlint` (bloquant) et `zizmor` (bloquant à partir de la sévérité « high ») dans `ci-code-quality.yml`.
 - **Secrets** : le `GITHUB_TOKEN` est utilisé avec les permissions minimales nécessaires.
 - **Scan container avant publication** : gate bloquante `gate-container-scan`.
 

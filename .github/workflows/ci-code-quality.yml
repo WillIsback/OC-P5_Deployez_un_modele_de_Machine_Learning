@@ -22,22 +22,28 @@ jobs:
     name: ci-code-quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      security-events: write
 
     steps:
       - name: Checkout du code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Installer Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
       - name: Installer uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
-          version: "latest"
+          version: "0.13.1"
           cache-dependency-glob: "uv.lock"
 
       - name: Synchroniser les dépendances
@@ -82,18 +88,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Binaire officiel actionlint (script de download du repo rhysd/actionlint)
-          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          # Script et binaire épinglés à la même version (v1.7.12).
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
           # -shellcheck=- : désactive l'intégration shellcheck (codes de style
           # pré-existants dans release.yml) tout en gardant le lint structurel.
           ./actionlint -color -shellcheck=-
 
       - name: Analyse de sécurité des workflows (zizmor)
-        uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
+        id: zizmor
         continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          # zizmor audite réellement les workflows (injections de template,
+          # permissions excessives, actions non épinglées…). Bloquant à partir
+          # de la sévérité « high » ; les constats « dangerous-triggers »
+          # justifiés sont listés dans .github/zizmor.yml.
+          uvx zizmor@1.31.0 --min-severity high --format sarif .github/workflows > zizmor.sarif
+
+      - name: Upload SARIF zizmor
+        if: ${{ always() && hashFiles('zizmor.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
         with:
-          src: ".github/workflows/"
-          args: check --output-format github --ignore E999 --select S
+          sarif_file: zizmor.sarif
+          category: "zizmor"
+
+      - name: Échouer si zizmor signale un problème de sévérité élevée
+        if: steps.zizmor.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "❌ zizmor a signalé au moins un problème de sévérité « high »."
+          exit 1
 
       - name: Vérification de l'intégrité du lockfile
         run: |
