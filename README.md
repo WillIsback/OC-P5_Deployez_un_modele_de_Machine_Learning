@@ -110,6 +110,7 @@ Démarrage avec Docker Compose :
 
 ```bash
 cp .example.env .env                 # puis remplacer les valeurs change-me* et SECRET_KEY
+mkdir -p models mlruns              # créés par l'utilisateur courant (sinon root via Docker)
 docker compose up -d db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
