@@ -36,6 +36,7 @@ def api_client(provisioned_db, demo_models, monkeypatch):
         with factory() as s:
             add_year(s, 1, 2018)
             add_building(s, 2)  # résidentiel : identité sans année
+            add_year(s, 3, 2018, split="train")  # vu par l'entraînement
             s.commit()
         conn.execute(text(f"SET LOCAL ROLE {API_ROLE}"))
         assert conn.scalar(text("SELECT current_user")) == API_ROLE
@@ -63,6 +64,8 @@ def api_client(provisioned_db, demo_models, monkeypatch):
         ("/model/predict", {"building_id": 2}, 422),
         ("/model/predict/features", MANUAL_PAYLOAD, 200),
         ("/model/predict/compare", {"building_id": 1}, 200),
+        ("/model/predict", {"building_id": 3}, 403),
+        ("/model/predict/compare", {"building_id": 3}, 403),
     ],
 )
 def test_prediction_routes_under_api_role(api_client, route, payload, status):
@@ -70,7 +73,15 @@ def test_prediction_routes_under_api_role(api_client, route, payload, status):
     assert r.status_code == status, r.text
 
 
-@pytest.mark.parametrize("route", ["/model/list", "/model/metrics"])
+@pytest.mark.parametrize(
+    "route", ["/model/list", "/model/metrics", "/buildings", "/buildings/1"]
+)
 def test_read_routes_under_api_role(api_client, route):
     r = api_client.get(route)
     assert r.status_code == 200, r.text
+
+
+def test_seen_building_hidden_under_api_role(api_client):
+    assert api_client.get("/buildings/3").status_code == 404
+    listed = api_client.get("/buildings").json()["items"]
+    assert [item["building_id"] for item in listed] == [1]
