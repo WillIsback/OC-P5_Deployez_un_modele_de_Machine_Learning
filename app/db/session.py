@@ -40,7 +40,9 @@ class ApiSession(Session):
     """Session liée à l'engine de l'API, résolu à la première ouverture."""
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("bind", get_engine())
+        # sessionmaker passe bind=None explicitement : setdefault ne suffit pas.
+        if kwargs.get("bind") is None:
+            kwargs["bind"] = get_engine()
         super().__init__(**kwargs)
 
 

@@ -17,6 +17,7 @@ def test_get_session_yields_session_from_factory(monkeypatch):
     gen = db_session.get_session()
     s = next(gen)
     assert isinstance(s, Session)
+    assert s.get_bind() is db_session.get_engine()
     gen.close()
 
 
