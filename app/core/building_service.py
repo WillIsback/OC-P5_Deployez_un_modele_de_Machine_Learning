@@ -35,7 +35,7 @@ def _escape_like(term: str) -> str:
 
 def _conditions(filters: BuildingFilters) -> list:
     conditions = unseen_conditions()
-    if filters.q:
+    if filters.q and filters.q.strip():
         pattern = f"%{_escape_like(filters.q.strip())}%"
         conditions.append(
             or_(

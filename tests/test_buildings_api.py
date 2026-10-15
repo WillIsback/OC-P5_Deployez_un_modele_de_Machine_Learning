@@ -93,6 +93,7 @@ def test_list_returns_only_unseen_buildings_with_years(client, auth_headers, cat
         ({"building_type": "campus"}, [4]),
         ({"q": "tower"}, []),
         ({"q": "annee"}, []),
+        ({"q": "  "}, [1, 4]),
     ],
 )
 def test_filters(client, auth_headers, catalogue, params, expected):
