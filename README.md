@@ -110,7 +110,7 @@ Les tests de base de données créent une base `p5_test` via l'URL administrateu
 
 ## 🗄️ Base de données
 
-L'API s'appuie sur **PostgreSQL** : dataset structuré (brut puis features préparées), traçabilité de chaque appel API par utilisateur, prédictions versionnées et authentification via la table `users`. Schéma UML, choix techniques, rôles et requêtes d'exemple : voir [`docs/db/README.md`](docs/db/README.md) (DDL : [`docs/db/schema.sql`](docs/db/schema.sql)).
+L'API s'appuie sur **PostgreSQL** : dataset structuré (identité des bâtiments, features par année, cibles réelles), traçabilité de chaque appel API par utilisateur, prédictions versionnées et authentification via la table `users`. Schéma UML, choix techniques, rôles et requêtes d'exemple : voir [`docs/db/README.md`](docs/db/README.md) (DDL : [`docs/db/schema.sql`](docs/db/schema.sql)).
 
 Démarrage avec Docker Compose :
 
@@ -123,7 +123,6 @@ uv run python -c "from app.training.data_processing import ensure_dataset; ensur
 docker compose up -d db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-docker compose run --rm tools python -m app.db.prepare --year 2016
 docker compose run --rm tools python -m app.training   # models/*.cbm (non versionnés)
 docker compose up -d api             # API sur http://localhost:8080
 ```
@@ -149,7 +148,7 @@ Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md
 | `DATABASE_OWNER_URL` / `DATABASE_ADMIN_URL` | Rôle propriétaire (ingestion, préparation, entraînement, migrations) / administrateur (`create_db`) | aucun |
 | `POSTGRES_PASSWORD`, `P5_OWNER_PASSWORD`, `P5_API_PASSWORD`, `P5_MLFLOW_PASSWORD` | Mots de passe des rôles, utilisés par Docker Compose et `create_db` | aucun |
 | `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT` | Suivi MLflow de l'entraînement | `sqlite:///mlflow.db` / `seattle-energy` |
-| `TRAINING_YEAR` | Année d'entraînement (référence de `prepare` et de l'harmonisation) | `2016` |
+| `TRAINING_YEAR` | Année d'entraînement (référence de l'ingestion et de l'harmonisation) | `2016` |
 | `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration | `0` (Compose) |
 | `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS` | Modèles CatBoost servis | `models/energy.cbm` / `models/emissions.cbm` |
 | `MODEL_VERSION_PATH` / `MODEL_METRICS_PATH` | Version servie / table de scores de `GET /model/metrics` | `models/version.json` / `models/scores.json` |
@@ -181,7 +180,7 @@ La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). 
 
 ## ⚡ API de prédiction (CatBoost — Seattle)
 
-La route `POST /model/predict` prédit, à partir d'un `building_id` présent en base (features préparées par `app.db.prepare`), la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
+La route `POST /model/predict` prédit, à partir d'un `building_id` présent en base (features calculées à l'ingestion), la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
 
 Exemple d'appel par identifiant de bâtiment (`data_year` optionnel : par défaut l'année la plus récente disponible) :
 
@@ -317,17 +316,16 @@ Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` 
 **Entraînement réel (pipeline multi-cible + MLflow)** :
 
 ```bash
-# 1. Ingérer puis préparer l'année d'entraînement dans PostgreSQL
+# 1. Ingérer l'année d'entraînement (nettoyage, features et split inclus)
 #    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent,
 #    mais uniquement en local avec `uv run` : dans le service tools, ./data est monté en lecture seule)
 uv run python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv [--download]
-uv run python -m app.db.prepare --year 2016
 
 # 2. Entraîner depuis la base (rôle propriétaire : DATABASE_OWNER_URL)
 uv run python -m app.training
 ```
 
-L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_features` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
+L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_years`, `buildings.split` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
 `TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
 logue les runs MLflow (`uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"`). Sorties : `models/<cible>.cbm`,
 `models/scores.json` et `models/version.json` (version servie, lue par l'API).
