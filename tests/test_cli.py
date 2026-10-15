@@ -54,9 +54,10 @@ def test_main_writes_version_file_of_registered_model(db, monkeypatch, tmp_path)
     monkeypatch.setattr(db_session, "owner_session_factory", lambda: db)
     monkeypatch.setattr(cli, "load_training_data", lambda session: object())
     monkeypatch.setattr(cli, "TrainPipeline", FakePipeline)
-    cli.main(["--output-dir", str(tmp_path), "--no-kumo"])
+    monkeypatch.chdir(tmp_path)  # --output-dir doit être sous le répertoire courant
+    cli.main(["--output-dir", "out", "--no-kumo"])
 
-    info = json.loads((tmp_path / "version.json").read_text())
+    info = json.loads((tmp_path / "out" / "version.json").read_text())
     with db() as s:
         active = s.scalar(
             select(MlModel).where(MlModel.name == info["name"], MlModel.is_active)
@@ -66,3 +67,17 @@ def test_main_writes_version_file_of_registered_model(db, monkeypatch, tmp_path)
         "version": active.version,
         "mlflow_run_id": "run-123",
     }
+
+
+def test_main_rejects_output_dir_outside_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--output-dir", "../../etc"])
+    assert exc.value.code == 2
+
+
+def test_main_rejects_absolute_output_dir_outside_project(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--output-dir", "/tmp/hors-projet"])
+    assert exc.value.code == 2
+    assert "--output-dir" in capsys.readouterr().err

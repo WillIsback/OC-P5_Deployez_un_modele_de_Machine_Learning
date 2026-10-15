@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import numpy as np
 import pandas as pd
@@ -37,7 +38,7 @@ TEST_PREFIX = "p5test"
 TEST_PASSWORDS = {"owner": "owner-test", "api": "api-test", "mlflow": "mlflow-test"}
 
 
-def db_unavailable(exc: Exception) -> None:
+def db_unavailable(exc: Exception) -> NoReturn:
     """Base de test injoignable : skip en local, échec si REQUIRE_TEST_DB=1 (CI)."""
     message = (
         f"PostgreSQL de test indisponible ({exc}). Lancez `docker compose up -d db`."
@@ -55,13 +56,14 @@ def provisioned_db():
         )
     except psycopg.OperationalError as exc:
         db_unavailable(exc)
-    with conn:
-        for name in (TEST_DB, TEST_MLFLOW_DB):
-            conn.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
-                    sql.Identifier(name)
+    else:
+        with conn:
+            for name in (TEST_DB, TEST_MLFLOW_DB):
+                conn.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                        sql.Identifier(name)
+                    )
                 )
-            )
     owner_url = create_db.provision(
         ADMIN_URL,
         passwords=TEST_PASSWORDS,

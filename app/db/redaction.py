@@ -57,6 +57,7 @@ def parse_body(body: bytes, content_type: str | None) -> Any | None:
         if ctype == "application/json" or ctype.endswith("+json"):
             return _sanitize(json.loads(body))
     except (UnicodeDecodeError, ValueError, RecursionError):
+        # Corps illisible ou malformé : repli volontaire sur le marqueur _raw.
         pass
     return _raw_marker(body)
 

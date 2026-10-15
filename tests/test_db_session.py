@@ -11,11 +11,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db import session as db_session
 
 
-def test_get_session_yields_session_from_factory():
+def test_get_session_yields_session_from_factory(monkeypatch):
+    monkeypatch.setattr(db_session, "_engine", None)
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/p5")
     gen = db_session.get_session()
     s = next(gen)
     assert isinstance(s, Session)
     gen.close()
+
+
+def test_database_url_required_at_first_use(monkeypatch):
+    monkeypatch.setattr(db_session, "_engine", None)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        db_session.get_engine()
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        next(db_session.get_session())
 
 
 def test_owner_session_factory_requires_env(monkeypatch):

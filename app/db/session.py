@@ -4,24 +4,47 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from dotenv import load_dotenv
 from fastapi import Depends
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 load_dotenv()
 
-# Rôle restreint `p5_api` : aucune PII, aucune cible réelle (spec §5.2).
-# Pas de mot de passe par défaut dans le code : il vient de DATABASE_URL (.env).
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+psycopg://p5_api@localhost:5432/p5"
-)
+_engine: Engine | None = None
 
-# create_engine est paresseux : aucune connexion n'est ouverte à l'import.
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+def get_engine() -> Engine:
+    """Engine du rôle restreint `p5_api` (spec §5.2), créé au premier usage.
+
+    L'URL (mot de passe compris) vient uniquement de ``DATABASE_URL`` : aucune
+    valeur de repli dans le code. L'import reste possible sans la variable (CI,
+    outillage) ; ouvrir une session sans elle échoue explicitement. La création
+    de l'engine n'ouvre aucune connexion.
+    """
+    global _engine
+    if _engine is None:
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            raise RuntimeError(
+                "DATABASE_URL non défini : renseignez-le dans .env ou "
+                "l'environnement (voir .example.env)."
+            )
+        _engine = create_engine(url, pool_pre_ping=True)
+    return _engine
+
+
+class ApiSession(Session):
+    """Session liée à l'engine de l'API, résolu à la première ouverture."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("bind", get_engine())
+        super().__init__(**kwargs)
+
+
+SessionLocal = sessionmaker(class_=ApiSession, expire_on_commit=False)
 
 
 def get_session() -> Iterator[Session]:
