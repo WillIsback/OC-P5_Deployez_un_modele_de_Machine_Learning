@@ -77,6 +77,35 @@ def flag_training_eligibility(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+# Plages plausibles d'intensité (cible réelle / PropertyGFATotal), arrondies à
+# partir des bâtiments éligibles de 2016 (EUI 1,4–906 kBtu/sf ; émissions
+# ≤ 34 kg CO2e/sf). L'open data n'a plus la colonne Outlier de 2016 : sans ce
+# garde-fou, une seule déclaration erronée suffit à écraser le R² d'une année.
+SITE_EUI_RANGE = (1.0, 1000.0)  # kBtu/sf
+GHG_INTENSITY_MAX = 0.05  # t CO2e/sf
+
+
+def flag_production_exclusion(df: pd.DataFrame) -> pd.Series:
+    """Raison d'exclure un bâtiment de l'évaluation des années de production.
+
+    Conformité, puis intensités d'énergie et d'émissions hors plages (None =
+    conservé). Ne sert qu'à l'évaluation : la prédiction par identifiant l'ignore.
+    """
+    reason = pd.Series([None] * len(df), index=df.index, dtype=object)
+    gfa = df["PropertyGFATotal"].where(df["PropertyGFATotal"] > 0)
+    eui = df["SiteEnergyUse(kBtu)"] / gfa
+    ghg = df["TotalGHGEmissions"] / gfa
+    low, high = SITE_EUI_RANGE
+    checks = [
+        (df["ComplianceStatus"].ne("Compliant"), "non_compliant"),
+        ((eui < low) | (eui > high), "aberrant_energy"),
+        (ghg > GHG_INTENSITY_MAX, "aberrant_emissions"),
+    ]
+    for mask, label in checks:
+        reason[mask & reason.isna()] = label
+    return reason
+
+
 def assign_split(
     eligible_index: pd.Index, test_size: float = 0.2, seed: int = 42
 ) -> pd.Series:
