@@ -59,15 +59,16 @@ Format complet : `^(feat|fix|refactor|docs|chore|hotfix|release)/[a-z0-9._-]+$`
 
 - **Interdiction de push direct sur `main` (R4)** — toute modification passe par une PR.
 - Titre de PR en **Conventional Commits** : `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `perf:`, `ci:`, `build:`, `revert:`, avec `!` pour les breaking changes.
-- La PR doit référencer au moins une issue (`Closes #...` ou `Related to #...`).
-- Les 4 workflows CI sont obligatoires et bloquants :
+- La PR doit référencer au moins une issue (`Closes #...`, `Related to #...` ou `Task: #...`).
+- 5 workflows CI s'exécutent sur chaque PR et doivent être verts avant le merge (seul `ci-model-performance` est déclaré check requis dans le ruleset « Protection de main ») :
   - `ci-code-quality`
   - `ci-test`
   - `ci-security`
   - `ci-traceability`
+  - `ci-model-performance` (gate de non-régression du modèle : `models/scores.json` comparé à `models/scores_baseline.json`, voir `app/training/score_validation.py`)
 - En complément, une **revue de code IA non bloquante** est postée sur la PR par le workflow `ai-code-review` (déclenché après `ci-test`) via l'action [`WillIsback/code-review`](https://github.com/WillIsback/code-review).
 - Projet solo : la règle de revue est désactivée (`required_approving_review_count: 0`) — une PR peut être mergée par son auteur, sans bypass administrateur.
-- **Merge en squash uniquement (R6)** — l'historique de `main` est linéaire.
+- **Merge en squash uniquement (R6)** — l'historique de `main` est linéaire. C'est une convention : le ruleset « Protection de main » impose l'historique linéaire mais autorise aussi le rebase.
 
 ### 4. Après le merge
 
@@ -83,10 +84,11 @@ Le merge dans `main` déclenche automatiquement le workflow `release` qui :
 
 - [ ] Le titre suit le format Conventional Commits
 - [ ] Les issues liées sont référencées dans le corps de la PR
-- [ ] Les tests passent localement (`uv run pytest --cov`)
+- [ ] Les tests passent localement (`uv run pytest --cov`) avec PostgreSQL démarré (`docker compose up -d db`) : sans base joignable, les tests qui en dépendent sont **ignorés** (skip), pas exécutés
 - [ ] Le linter passe (`uv run ruff check .`)
 - [ ] Le formateur passe (`uv run ruff format --check .`)
 - [ ] Les dépendances sont à jour (`uv lock --check`)
+- [ ] Après un réentraînement, `models/scores.json` est commité : la gate `ci-model-performance` échoue si la MedAPE CatBoost augmente de plus de 5 points (`MAX_MEDAPE_INCREASE`) ou si le R² baisse de plus de 0,05 (`MIN_R2_DROP`) par rapport à `models/scores_baseline.json`
 - [ ] La documentation est mise à jour si nécessaire
 - [ ] Aucun secret ou token n'est commité
 
@@ -104,7 +106,10 @@ uv run ruff check .
 # Formateur
 uv run ruff format .
 
-# Tests
+# Tests (PostgreSQL requis, sinon les tests de base de données sont ignorés).
+# Connexion admin : TEST_DATABASE_ADMIN_URL, sinon postgres:$POSTGRES_PASSWORD@localhost:5432
+# (POSTGRES_PASSWORD lu depuis .env) ; REQUIRE_TEST_DB=1 transforme le skip en échec (CI).
+docker compose up -d db
 uv run pytest --cov=app
 
 # Vérifier le lockfile
@@ -115,22 +120,27 @@ uv lock --check
 
 ## 🐳 Docker
 
+Le `Dockerfile` dérive de l'image de base des dépendances (`ARG BASE_IMAGE`, par défaut `ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:base`, publiée par le workflow `base-image`). Sans accès à cette image, construire la base localement et la passer en argument :
+
 ```bash
-# Build
+# Build avec l'image de base GHCR (défaut)
 docker build -t <image> .
 
-# Run
-docker run -p 8080:8080 <image>
+# Build avec une image de base locale
+docker build -f Dockerfile.base -t p5-base .
+docker build --build-arg BASE_IMAGE=p5-base -t <image> .
 ```
+
+Un simple `docker run -p 8080:8080 <image>` ne donne pas une API utilisable : il manque `SECRET_KEY`, `DATABASE_URL` (PostgreSQL) et les modèles `models/*.cbm` (non versionnés, à monter). Utiliser `docker compose` (services `db`, `api` et `tools`), dont la mise en route complète (provisionnement, ingestion, entraînement) est décrite dans [`docs/db/README.md`](docs/db/README.md#4-mise-en-route).
 
 ---
 
 ## 🔒 Sécurité
 
-- Les workflows CI sont analysés par `actionlint` et `zizmor`.
+- Les workflows CI sont analysés par `actionlint`. L'étape « Analyse de sécurité des workflows (zizmor) » de `ci-code-quality` n'exécute pas zizmor mais `ruff check --select S` sur `.github/workflows/`, en `continue-on-error` : ruff ne trouvant aucun fichier Python dans ce dossier, elle n'analyse rien.
 - Les dépendances sont scannées par `trivy` et `dependency-review-action`.
 - Les secrets sont détectés par `gitleaks`.
-- Les exceptions de sécurité sont dans `.github/security-exceptions.yml` (datées, avec expiration).
+- Les exceptions de sécurité sont recensées dans `.github/security-exceptions.yml` (datées, avec expiration). Ce registre est documentaire : aucun workflow ne le lit (voir issue #30).
 
 ---
 
