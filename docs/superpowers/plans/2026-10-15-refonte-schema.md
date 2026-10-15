@@ -141,7 +141,9 @@ def test_coerce_row_by_column_type():
         "latitude": 47.6,
         "number_of_buildings": None,
     }
-    identity = mapping.coerce_row(Building, {"zip_code": 98101.0, "address": float("nan")})
+    identity = mapping.coerce_row(
+        Building, {"zip_code": 98101.0, "address": float("nan")}
+    )
     assert identity == {"zip_code": "98101", "address": None}
 
 
@@ -485,8 +487,6 @@ def flag_production_exclusion(df: pd.DataFrame) -> pd.Series:
     for mask, label in checks:
         reason[mask & reason.isna()] = label
     return reason
-
-
 ```
 
 - [ ] **Step 4 : Réécrire `app/db/prepare.py`** (remplacer tout le fichier) :
@@ -605,7 +605,6 @@ JOIN building_records_raw r ON r.id = i.building_record_id
 JOIN building_actuals a ON a.record_id = r.id
 WHERE i.input_source = 'batch'
 """
-
 ```
 
 - [ ] **Step 2 : Réécrire `app/db/views.py`** :
@@ -797,7 +796,9 @@ def upgrade() -> None:
             name=op.f("fk_predictions_building_year_id_building_years"),
         ),
         sa.ForeignKeyConstraint(
-            ["model_id"], ["ml_models.id"], name=op.f("fk_predictions_model_id_ml_models")
+            ["model_id"],
+            ["ml_models.id"],
+            name=op.f("fk_predictions_model_id_ml_models"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_predictions")),
     )
@@ -916,7 +917,7 @@ from app.db.models import Base, Building, MlModel, Prediction, User
 ```python
 def test_split_values_checked(db):
     with db() as s:
-        s.add(Building(id=1, split="validation"))
+        s.add(Building(id=1, split="invalid"))
         with pytest.raises(IntegrityError):
             s.commit()
 
@@ -1294,7 +1295,11 @@ def _upsert_years(session: Session, rows: pd.DataFrame, year: int) -> dict[int, 
     ]
     for chunk in _chunks(payload):
         stmt = pg_insert(BuildingYear).values(chunk)
-        updates = {c: stmt.excluded[c] for c in chunk[0] if c not in ("building_id", "data_year")}
+        updates = {
+            c: stmt.excluded[c]
+            for c in chunk[0]
+            if c not in ("building_id", "data_year")
+        }
         session.execute(
             stmt.on_conflict_do_update(
                 index_elements=["building_id", "data_year"],
@@ -1700,15 +1705,16 @@ def test_model_failure_leaves_no_prediction_but_traces_request(
 1e. `test_model_unexpected_error_503_keeps_input` → renommer `test_model_unexpected_error_503` et remplacer le corps par
 
 ```python
-    def boom(df):
-        raise RuntimeError("secret /chemin/interne")
+def boom(df):
+    raise RuntimeError("secret /chemin/interne")
 
-    monkeypatch.setattr(model_service, "predict_frame", boom)
-    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
-    assert r.status_code == 503
-    assert r.json()["detail"] == "Modèle CatBoost indisponible"
-    with db() as s:
-        assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+
+monkeypatch.setattr(model_service, "predict_frame", boom)
+r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+assert r.status_code == 503
+assert r.json()["detail"] == "Modèle CatBoost indisponible"
+with db() as s:
+    assert s.scalar(select(func.count()).select_from(Prediction)) == 0
 ```
 
 (en conservant la signature `(client, db, auth_headers, buildings, monkeypatch)`).
