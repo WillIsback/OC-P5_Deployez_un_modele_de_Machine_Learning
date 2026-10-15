@@ -9,13 +9,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import mapping
-from app.db.models import (
-    Base,
-    BuildingActual,
-    BuildingFeatures,
-    BuildingRecordRaw,
-    PredictionInput,
-)
+from app.db.models import Base, Building, BuildingActual, BuildingYear
 from app.schemas.api import FEATURE_COLUMNS
 
 
@@ -24,11 +18,9 @@ def test_all_tables_declared():
         "users",
         "api_requests",
         "buildings",
-        "building_records_raw",
-        "building_features",
+        "building_years",
         "building_actuals",
         "ml_models",
-        "prediction_inputs",
         "predictions",
     }
 
@@ -37,17 +29,15 @@ def test_feature_sql_covers_feature_columns_in_order():
     assert list(mapping.FEATURE_SQL) == FEATURE_COLUMNS
 
 
-def test_feature_block_shared_by_features_and_inputs():
+def test_feature_block_in_building_years():
     for col in mapping.FEATURE_SQL.values():
-        assert col in BuildingFeatures.__table__.columns
-        assert col in PredictionInput.__table__.columns
+        assert col in BuildingYear.__table__.columns
 
 
-def test_raw_sql_targets_existing_columns():
-    raw_cols = BuildingRecordRaw.__table__.columns
-    assert len(mapping.RAW_SQL) == 46
-    for sql_col in mapping.RAW_SQL.values():
-        assert sql_col in raw_cols
+def test_source_columns_are_unique_csv_names():
+    assert len(mapping.SOURCE_COLUMNS) == 46
+    assert len(set(mapping.SOURCE_COLUMNS)) == 46
+    assert mapping.SOURCE_COLUMNS[0] == "OSEBuildingID"
 
 
 def test_target_sql_targets_actuals():
@@ -64,23 +54,25 @@ def test_to_python_handles_numpy_and_nan():
 
 
 def test_coerce_row_by_column_type():
-    row = mapping.coerce_row(
-        BuildingRecordRaw,
+    years = mapping.coerce_row(
+        BuildingYear,
         {
-            "zip_code": 98101.0,
             "year_built": np.float64(1990.0),
-            "default_data": "False",
+            "has_steam": "False",
             "latitude": np.float64(47.6),
-            "comments": float("nan"),
+            "number_of_buildings": float("nan"),
         },
     )
-    assert row == {
-        "zip_code": "98101",
+    assert years == {
         "year_built": 1990,
-        "default_data": False,
+        "has_steam": False,
         "latitude": 47.6,
-        "comments": None,
+        "number_of_buildings": None,
     }
+    identity = mapping.coerce_row(
+        Building, {"zip_code": 98101.0, "address": float("nan")}
+    )
+    assert identity == {"zip_code": "98101", "address": None}
 
 
 def test_features_roundtrip():
@@ -107,11 +99,10 @@ def test_features_roundtrip():
     assert sql["has_natural_gas"] is True
     assert sql["has_steam"] is False
     assert sql["second_largest_property_use_type_gfa"] is None
-    obj = PredictionInput(input_source="manual", **sql)
+    obj = BuildingYear(**sql)
     back = mapping.features_from_sql(obj)
     assert list(back) == FEATURE_COLUMNS
     assert back["Has_NaturalGas"] == 1
     assert back["Has_Steam"] == 0
     assert back["SecondLargestPropertyUseTypeGFA"] is None
-    assert mapping.feature_values(obj)["latitude"] == 47.6
     assert not math.isnan(back["Latitude"])

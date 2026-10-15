@@ -5,13 +5,7 @@ CREATE TABLE alembic_version (
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
 
--- Running upgrade  -> 7d40b95bef42
-
-CREATE TABLE buildings (
-    ose_building_id INTEGER NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    CONSTRAINT pk_buildings PRIMARY KEY (ose_building_id)
-);
+-- État final (head 3b8e1f6a42c7) : tables conservées puis tables du schéma simplifié
 
 CREATE TABLE ml_models (
     id BIGINT GENERATED ALWAYS AS IDENTITY,
@@ -61,166 +55,92 @@ CREATE INDEX ix_api_requests_path_created ON api_requests (path, created_at);
 
 CREATE INDEX ix_api_requests_user_created ON api_requests (user_id, created_at);
 
-CREATE TABLE building_records_raw (
+CREATE TABLE buildings (
+    id INTEGER NOT NULL,
+    property_name VARCHAR(255),
+    address VARCHAR(255),
+    zip_code VARCHAR(10),
+    neighborhood VARCHAR(64),
+    building_type VARCHAR(64),
+    primary_property_type VARCHAR(64),
+    split VARCHAR(8),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    CONSTRAINT pk_buildings PRIMARY KEY (id),
+    CONSTRAINT ck_buildings_split_values CHECK (split IN ('train', 'test'))
+);
+
+CREATE TABLE building_years (
     id BIGINT GENERATED ALWAYS AS IDENTITY,
     building_id INTEGER NOT NULL,
     data_year SMALLINT NOT NULL,
-    building_type VARCHAR(64),
-    primary_property_type VARCHAR(64),
-    property_name VARCHAR(255),
-    address VARCHAR(255),
-    city VARCHAR(64),
-    state VARCHAR(8),
-    zip_code VARCHAR(10),
-    tax_parcel_identification_number VARCHAR(64),
-    council_district_code SMALLINT,
-    neighborhood VARCHAR(64),
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION,
-    year_built SMALLINT,
+    building_type VARCHAR(64) NOT NULL,
+    primary_property_type VARCHAR(64) NOT NULL,
+    neighborhood VARCHAR(64) NOT NULL,
+    latitude DOUBLE PRECISION NOT NULL,
+    longitude DOUBLE PRECISION NOT NULL,
+    year_built SMALLINT NOT NULL,
     number_of_buildings DOUBLE PRECISION,
-    number_of_floors SMALLINT,
-    property_gfa_total INTEGER,
-    property_gfa_parking INTEGER,
-    property_gfa_buildings INTEGER,
-    list_of_all_property_use_types TEXT,
-    largest_property_use_type VARCHAR(64),
-    largest_property_use_type_gfa DOUBLE PRECISION,
-    second_largest_property_use_type VARCHAR(64),
+    number_of_floors SMALLINT NOT NULL,
+    property_gfa_parking INTEGER NOT NULL,
+    property_gfa_buildings INTEGER NOT NULL,
+    largest_property_use_type VARCHAR(64) NOT NULL,
+    second_largest_property_use_type VARCHAR(64) NOT NULL,
     second_largest_property_use_type_gfa DOUBLE PRECISION,
-    third_largest_property_use_type VARCHAR(64),
+    third_largest_property_use_type VARCHAR(64) NOT NULL,
     third_largest_property_use_type_gfa DOUBLE PRECISION,
-    years_energy_star_certified VARCHAR(255),
-    energy_star_score DOUBLE PRECISION,
-    site_eui_kbtu_sf DOUBLE PRECISION,
-    site_eui_wn_kbtu_sf DOUBLE PRECISION,
-    source_eui_kbtu_sf DOUBLE PRECISION,
-    source_eui_wn_kbtu_sf DOUBLE PRECISION,
-    site_energy_use_kbtu DOUBLE PRECISION,
-    site_energy_use_wn_kbtu DOUBLE PRECISION,
-    steam_use_kbtu DOUBLE PRECISION,
-    electricity_kwh DOUBLE PRECISION,
-    electricity_kbtu DOUBLE PRECISION,
-    natural_gas_therms DOUBLE PRECISION,
-    natural_gas_kbtu DOUBLE PRECISION,
-    default_data BOOLEAN,
-    comments TEXT,
-    compliance_status VARCHAR(64),
-    outlier VARCHAR(32),
-    total_ghg_emissions DOUBLE PRECISION,
-    ghg_emissions_intensity DOUBLE PRECISION,
-    source_file VARCHAR(255) NOT NULL,
-    ingested_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    CONSTRAINT pk_building_records_raw PRIMARY KEY (id),
-    CONSTRAINT ck_building_records_raw_data_year_range CHECK (data_year BETWEEN 2015 AND 2100),
-    CONSTRAINT fk_building_records_raw_building_id_buildings FOREIGN KEY(building_id) REFERENCES buildings (ose_building_id),
-    CONSTRAINT uq_building_records_raw_building_id UNIQUE (building_id, data_year)
-);
-
-CREATE INDEX ix_building_records_raw_data_year ON building_records_raw (data_year);
-
-CREATE TABLE building_actuals (
-    record_id BIGINT NOT NULL,
-    site_energy_use_kbtu DOUBLE PRECISION,
-    total_ghg_emissions_tco2e DOUBLE PRECISION,
-    CONSTRAINT pk_building_actuals PRIMARY KEY (record_id),
-    CONSTRAINT fk_building_actuals_record_id_building_records_raw FOREIGN KEY(record_id) REFERENCES building_records_raw (id) ON DELETE CASCADE
-);
-
-CREATE TABLE building_features (
-    record_id BIGINT NOT NULL,
-    dataset_role VARCHAR(16) NOT NULL,
-    is_training_eligible BOOLEAN NOT NULL,
+    has_natural_gas BOOLEAN NOT NULL,
+    has_steam BOOLEAN NOT NULL,
     exclusion_reason VARCHAR(32),
-    split VARCHAR(8),
     prep_version VARCHAR(32) NOT NULL,
     prepared_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    building_type VARCHAR(64) NOT NULL,
-    primary_property_type VARCHAR(64) NOT NULL,
-    neighborhood VARCHAR(64) NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    year_built SMALLINT NOT NULL,
-    number_of_buildings DOUBLE PRECISION,
-    number_of_floors SMALLINT NOT NULL,
-    property_gfa_parking INTEGER NOT NULL,
-    property_gfa_buildings INTEGER NOT NULL,
-    largest_property_use_type VARCHAR(64) NOT NULL,
-    second_largest_property_use_type VARCHAR(64) NOT NULL,
-    second_largest_property_use_type_gfa DOUBLE PRECISION,
-    third_largest_property_use_type VARCHAR(64) NOT NULL,
-    third_largest_property_use_type_gfa DOUBLE PRECISION,
-    has_natural_gas BOOLEAN NOT NULL,
-    has_steam BOOLEAN NOT NULL,
-    CONSTRAINT pk_building_features PRIMARY KEY (record_id),
-    CONSTRAINT ck_building_features_reason_iff_excluded CHECK ((exclusion_reason IS NOT NULL) = (dataset_role = 'training' AND NOT is_training_eligible)),
-    CONSTRAINT ck_building_features_eligible_only_training CHECK (NOT is_training_eligible OR dataset_role = 'training'),
-    CONSTRAINT ck_building_features_dataset_role_values CHECK (dataset_role IN ('training', 'production')),
-    CONSTRAINT ck_building_features_exclusion_reason_values CHECK (exclusion_reason IN ('outlier', 'non_compliant', 'non_positive_target', 'missing_target')),
-    CONSTRAINT ck_building_features_split_values CHECK (split IN ('train', 'test')),
-    CONSTRAINT ck_building_features_split_iff_eligible CHECK ((split IS NOT NULL) = is_training_eligible),
-    CONSTRAINT fk_building_features_record_id_building_records_raw FOREIGN KEY(record_id) REFERENCES building_records_raw (id) ON DELETE CASCADE
+    CONSTRAINT pk_building_years PRIMARY KEY (id),
+    CONSTRAINT ck_building_years_data_year_range CHECK (data_year BETWEEN 2015 AND 2100),
+    CONSTRAINT ck_building_years_exclusion_reason_values CHECK (exclusion_reason IN ('outlier', 'non_compliant', 'non_positive_target', 'missing_target', 'aberrant_energy', 'aberrant_emissions')),
+    CONSTRAINT fk_building_years_building_id_buildings FOREIGN KEY(building_id) REFERENCES buildings (id),
+    CONSTRAINT uq_building_years_building_id UNIQUE (building_id, data_year)
 );
 
-CREATE INDEX ix_building_features_role_eligible ON building_features (dataset_role, is_training_eligible);
+CREATE INDEX ix_building_years_data_year ON building_years (data_year);
 
-CREATE TABLE prediction_inputs (
-    id BIGINT GENERATED ALWAYS AS IDENTITY,
-    api_request_id BIGINT,
-    input_source VARCHAR(16) NOT NULL,
-    building_record_id BIGINT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    building_type VARCHAR(64) NOT NULL,
-    primary_property_type VARCHAR(64) NOT NULL,
-    neighborhood VARCHAR(64) NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    year_built SMALLINT NOT NULL,
-    number_of_buildings DOUBLE PRECISION,
-    number_of_floors SMALLINT NOT NULL,
-    property_gfa_parking INTEGER NOT NULL,
-    property_gfa_buildings INTEGER NOT NULL,
-    largest_property_use_type VARCHAR(64) NOT NULL,
-    second_largest_property_use_type VARCHAR(64) NOT NULL,
-    second_largest_property_use_type_gfa DOUBLE PRECISION,
-    third_largest_property_use_type VARCHAR(64) NOT NULL,
-    third_largest_property_use_type_gfa DOUBLE PRECISION,
-    has_natural_gas BOOLEAN NOT NULL,
-    has_steam BOOLEAN NOT NULL,
-    CONSTRAINT pk_prediction_inputs PRIMARY KEY (id),
-    CONSTRAINT ck_prediction_inputs_batch_iff_no_request CHECK ((input_source = 'batch') = (api_request_id IS NULL)),
-    CONSTRAINT ck_prediction_inputs_manual_without_record CHECK (input_source <> 'manual' OR building_record_id IS NULL),
-    CONSTRAINT ck_prediction_inputs_record_required CHECK (input_source = 'manual' OR building_record_id IS NOT NULL),
-    CONSTRAINT ck_prediction_inputs_input_source_values CHECK (input_source IN ('building_id', 'manual', 'batch')),
-    CONSTRAINT fk_prediction_inputs_api_request_id_api_requests FOREIGN KEY(api_request_id) REFERENCES api_requests (id),
-    CONSTRAINT fk_prediction_inputs_building_record_id_building_records_raw FOREIGN KEY(building_record_id) REFERENCES building_records_raw (id)
+CREATE TABLE building_actuals (
+    building_year_id BIGINT NOT NULL,
+    site_energy_use_kbtu DOUBLE PRECISION,
+    total_ghg_emissions_tco2e DOUBLE PRECISION,
+    CONSTRAINT pk_building_actuals PRIMARY KEY (building_year_id),
+    CONSTRAINT fk_building_actuals_building_year_id_building_years FOREIGN KEY(building_year_id) REFERENCES building_years (id) ON DELETE CASCADE
 );
-
-CREATE INDEX ix_prediction_inputs_api_request_id ON prediction_inputs (api_request_id);
-
-CREATE INDEX ix_prediction_inputs_building_record_id ON prediction_inputs (building_record_id);
 
 CREATE TABLE predictions (
     id BIGINT GENERATED ALWAYS AS IDENTITY,
-    prediction_input_id BIGINT NOT NULL,
+    api_request_id BIGINT,
+    building_year_id BIGINT,
     model_id BIGINT NOT NULL,
+    input_features JSONB NOT NULL,
     energy_use_kbtu DOUBLE PRECISION NOT NULL,
     ghg_emissions_tco2e DOUBLE PRECISION NOT NULL,
     predicted_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
     CONSTRAINT pk_predictions PRIMARY KEY (id),
-    CONSTRAINT fk_predictions_model_id_ml_models FOREIGN KEY(model_id) REFERENCES ml_models (id),
-    CONSTRAINT fk_predictions_prediction_input_id_prediction_inputs FOREIGN KEY(prediction_input_id) REFERENCES prediction_inputs (id) ON DELETE CASCADE,
-    CONSTRAINT uq_predictions_prediction_input_id UNIQUE (prediction_input_id, model_id)
+    CONSTRAINT ck_predictions_has_origin CHECK (api_request_id IS NOT NULL OR building_year_id IS NOT NULL),
+    CONSTRAINT fk_predictions_api_request_id_api_requests FOREIGN KEY(api_request_id) REFERENCES api_requests (id),
+    CONSTRAINT fk_predictions_building_year_id_building_years FOREIGN KEY(building_year_id) REFERENCES building_years (id),
+    CONSTRAINT fk_predictions_model_id_ml_models FOREIGN KEY(model_id) REFERENCES ml_models (id)
 );
 
 CREATE INDEX ix_predictions_model_predicted ON predictions (model_id, predicted_at);
+
+CREATE INDEX ix_predictions_api_request_id ON predictions (api_request_id);
+
+CREATE INDEX ix_predictions_building_year_id ON predictions (building_year_id);
+
+CREATE UNIQUE INDEX uq_predictions_batch ON predictions (building_year_id, model_id) WHERE api_request_id IS NULL;
 
 CREATE VIEW v_projected_evaluation AS
 SELECT
     m.name AS model_name,
     m.version AS model_version,
-    r.data_year,
-    r.building_id,
+    y.data_year,
+    y.building_id,
+    y.exclusion_reason,
     p.energy_use_kbtu AS predicted_energy_kbtu,
     a.site_energy_use_kbtu AS actual_energy_kbtu,
     p.ghg_emissions_tco2e AS predicted_ghg_tco2e,
@@ -233,12 +153,10 @@ SELECT
         / NULLIF(a.total_ghg_emissions_tco2e, 0) AS rel_err_ghg
 FROM predictions p
 JOIN ml_models m ON m.id = p.model_id
-JOIN prediction_inputs i ON i.id = p.prediction_input_id
-JOIN building_records_raw r ON r.id = i.building_record_id
-JOIN building_actuals a ON a.record_id = r.id
-WHERE i.input_source = 'batch';
+JOIN building_years y ON y.id = p.building_year_id
+JOIN building_actuals a ON a.building_year_id = y.id
+WHERE p.api_request_id IS NULL;
 
-INSERT INTO alembic_version (version_num) VALUES ('7d40b95bef42') RETURNING alembic_version.version_num;
+INSERT INTO alembic_version (version_num) VALUES ('3b8e1f6a42c7');
 
 COMMIT;
-

@@ -13,12 +13,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
-from synth import EXAMPLE_FEATURES, add_record
+from synth import add_building, add_year
 from test_predict_api import MANUAL_PAYLOAD
 
-from app.db import mapping
 from app.db import session as db_session
-from app.db.models import BuildingFeatures
 
 pytestmark = pytest.mark.db
 
@@ -36,17 +34,8 @@ def api_client(provisioned_db, demo_models, monkeypatch):
     try:
         conn.execute(text(f"SET LOCAL ROLE {TEST_PREFIX}_owner"))
         with factory() as s:
-            in_scope = add_record(s, 1, 2018)
-            add_record(s, 2, 2018, building_type="Multifamily LR (1-4)")
-            s.add(
-                BuildingFeatures(
-                    record_id=in_scope.id,
-                    dataset_role="production",
-                    is_training_eligible=False,
-                    prep_version="t",
-                    **mapping.features_to_sql(EXAMPLE_FEATURES),
-                )
-            )
+            add_year(s, 1, 2018)
+            add_building(s, 2)  # résidentiel : identité sans année
             s.commit()
         conn.execute(text(f"SET LOCAL ROLE {API_ROLE}"))
         assert conn.scalar(text("SELECT current_user")) == API_ROLE

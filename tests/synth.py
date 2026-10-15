@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.db.models import Building, BuildingRecordRaw
+from app.db import mapping
+from app.db.models import Building, BuildingYear
 
 
 def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
@@ -89,22 +90,35 @@ EXAMPLE_FEATURES = {
 }
 
 
-def add_record(
+def add_building(
+    session: Session, building_id: int, split: str | None = None
+) -> Building:
+    """Crée (si besoin) un bâtiment sans année : hors périmètre du modèle."""
+    building = session.get(Building, building_id)
+    if building is None:
+        building = Building(id=building_id, split=split)
+        session.add(building)
+        session.flush()
+    return building
+
+
+def add_year(
     session: Session,
     building_id: int,
     year: int,
-    building_type: str = "NonResidential",
-) -> BuildingRecordRaw:
-    """Crée (si besoin) le bâtiment puis un enregistrement brut minimal."""
-    if session.get(Building, building_id) is None:
-        session.add(Building(ose_building_id=building_id))
-        session.flush()
-    record = BuildingRecordRaw(
+    *,
+    split: str | None = None,
+    exclusion_reason: str | None = None,
+) -> BuildingYear:
+    """Crée (si besoin) le bâtiment puis une ligne d'année aux features d'exemple."""
+    add_building(session, building_id, split)
+    row = BuildingYear(
         building_id=building_id,
         data_year=year,
-        building_type=building_type,
-        source_file="test.csv",
+        exclusion_reason=exclusion_reason,
+        prep_version="t",
+        **mapping.features_to_sql(EXAMPLE_FEATURES),
     )
-    session.add(record)
+    session.add(row)
     session.flush()
-    return record
+    return row

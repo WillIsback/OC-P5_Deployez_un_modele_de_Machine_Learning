@@ -7,12 +7,10 @@ Ce document décrit la base PostgreSQL du projet : schéma, choix techniques, r�
 ```mermaid
 erDiagram
     users ||--o{ api_requests : "émet"
-    api_requests ||--o| prediction_inputs : "déclenche"
-    buildings ||--|{ building_records_raw : "1 par année"
-    building_records_raw ||--o| building_features : "préparé en"
-    building_records_raw ||--o| building_actuals : "cibles réelles"
-    building_records_raw ||--o{ prediction_inputs : "cible"
-    prediction_inputs ||--|{ predictions : "produit"
+    api_requests ||--o{ predictions : "déclenche"
+    buildings ||--o{ building_years : "1 par année"
+    building_years ||--o| building_actuals : "cibles réelles"
+    building_years ||--o{ predictions : "cible (optionnel)"
     ml_models ||--o{ predictions : "calcule"
 
     users {
@@ -38,27 +36,27 @@ erDiagram
         timestamptz created_at
     }
     buildings {
-        integer ose_building_id PK
+        integer id PK "OSEBuildingID"
+        varchar property_name
+        varchar address
+        varchar zip_code
+        varchar neighborhood
+        varchar building_type
+        varchar primary_property_type
+        varchar split "train, test ou NULL = jamais vu"
         timestamptz created_at
     }
-    building_records_raw {
+    building_years {
         bigint id PK
         integer building_id FK
         smallint data_year
-        varchar source_file
-        timestamptz ingested_at
-    }
-    building_features {
-        bigint record_id PK,FK
-        varchar dataset_role
-        boolean is_training_eligible
-        varchar exclusion_reason
-        varchar split
+        float features "17 colonnes du modèle"
+        varchar exclusion_reason "NULL = exploitable"
         varchar prep_version
         timestamptz prepared_at
     }
     building_actuals {
-        bigint record_id PK,FK
+        bigint building_year_id PK,FK
         double site_energy_use_kbtu
         double total_ghg_emissions_tco2e
     }
@@ -71,40 +69,35 @@ erDiagram
         boolean is_active
         timestamptz created_at
     }
-    prediction_inputs {
-        bigint id PK
-        bigint api_request_id FK
-        varchar input_source
-        bigint building_record_id FK
-        timestamptz created_at
-    }
     predictions {
         bigint id PK
-        bigint prediction_input_id FK
+        bigint api_request_id FK
+        bigint building_year_id FK
         bigint model_id FK
+        jsonb input_features
         double energy_use_kbtu
         double ghg_emissions_tco2e
         timestamptz predicted_at
     }
 ```
 
-Le diagramme omet les colonnes de données de `building_records_raw` (miroir typé du CSV), `building_features` et `prediction_inputs` (bloc des 17 features du modèle). Le DDL complet est dans [`schema.sql`](schema.sql), généré par `alembic upgrade head --sql` (voir §4). Il ne contient ni les rôles ni les `GRANT` (provisionnés par `app.db.create_db`) et inclut la table `alembic_version`.
+Le diagramme résume les 17 features de `building_years` (identiques à celles du modèle). Le DDL complet (état final) est dans [`schema.sql`](schema.sql) (voir §4). Il ne contient ni les rôles ni les `GRANT` (provisionnés par `app.db.create_db`) et inclut la table `alembic_version`.
 
 ## 2. Choix techniques
 
-**D1 — Granularité des traces.** Approche hybride : `api_requests` conserve, en JSONB, le corps de requête et de réponse de tous les appels (par utilisateur) ; les tables typées `prediction_inputs` et `predictions` permettent d'interroger efficacement les entrées et sorties du modèle.
+**D1 — Granularité des traces.** Approche hybride : `api_requests` conserve, en JSONB, le corps de requête et de réponse de tous les appels (par utilisateur) ; la table typée `predictions` (entrée figée en `input_features`, sorties) permet d'interroger efficacement les entrées et sorties du modèle.
 
-**D2 — Rôle du dataset en base.** La base est la source de vérité : `TrainPipeline` lit PostgreSQL et non plus le CSV.
+**D2 — Rôle du dataset en base.** La base est la source de vérité : `TrainPipeline` lit PostgreSQL (`building_years` des bâtiments portant un `split`) et non plus le CSV.
 
-**D3 — Format du brut.** `building_records_raw` contient des colonnes typées, miroir du CSV (snake_case), PII conservées. La PII n'est lisible que par le propriétaire.
+**D3 — Identité et source rejouable.** `buildings` porte l'identité (nom, adresse, quartier, types) et le split ; il n'y a plus de miroir du CSV. Les CSV de `data/` restent la source rejouable : `app.db.ingest` nettoie, calcule les features et écrit tout en une passe.
 
-**D4 — Modes de prédiction.** Trois valeurs de `input_source` sont tracées dans `prediction_inputs` : `building_id` (`POST /model/predict`, lecture des features préparées, et `POST /model/predict/compare`, qui rattache au même `prediction_inputs` une prédiction CatBoost et une prédiction Kumo), `manual` (saisie libre, `POST /model/predict/features`, sans `building_record_id`) et `batch` (évaluation projetée `app.db.evaluate`, hors API, sans `api_request_id`).
+**D4 — Modes de prédiction.** Une ligne de `predictions` par modèle appelé, avec l'entrée figée (`input_features`, JSONB). Origine déduite : `api_request_id` et `building_year_id` = `POST /model/predict` et `/model/predict/compare` (deux lignes, même requête) ; `api_request_id` seul = saisie libre (`/model/predict/features`) ; `building_year_id` seul = évaluation projetée (`app.db.evaluate`, hors API). Un échec du modèle ne crée aucune ligne : la tentative reste dans `api_requests`.
 
-**D5 — Périmètre.** Le résidentiel (`Multifamily*`) est stocké en brut mais absent de `building_features` ; une prédiction sur un tel bâtiment renvoie 422.
+**D5 — Périmètre.** Le résidentiel (`Multifamily*`) a une ligne `buildings` mais aucune ligne `building_years` ; une prédiction sur un tel bâtiment renvoie 422.
 
-**D6 — Éligibilité.** Les filtres qualité (outliers, conformité, cibles non positives ou manquantes) ne concernent que l'entraînement (année 2016, variable `TRAINING_YEAR`). La préparation (`app/db/prepare.py`) ne filtre pas les années de production (`exclusion_reason` NULL, `is_training_eligible` faux) : toutes restent prédictibles par l'API. En revanche, depuis la v1.1.0, l'évaluation projetée exclut de ses métriques les bâtiments non conformes ou aux intensités aberrantes (`exclusion_reason` dans `app/db/evaluate.py`, voir « Filtrage de l'évaluation projetée » au §4).
+**D6 — Exclusion.** `exclusion_reason` est renseignée à l'ingestion pour toutes les années. Année d'entraînement (`TRAINING_YEAR`) : outlier, non conforme, cible manquante ou non positive. Autres années : non conforme, `aberrant_energy`, `aberrant_emissions` (`flag_production_exclusion`, `app/training/data_processing.py`). Elle exclut un bâtiment de l'entraînement et de l'évaluation projetée, jamais de la prédiction par identifiant. Le split train/test est une propriété du bâtiment (`buildings.split`, `NULL` = jamais vu).
 
-**D7 — Cibles réelles.** Les cibles vivent dans `building_actuals`, table séparée ; `building_features` ne contient aucune cible, ce qui exclut toute fuite vers l'API. Le rôle `p5_api` n'y a pas accès.
+**D7 — Cibles réelles.** Les cibles vivent dans `building_actuals` ; `building_years` n'en contient aucune, ce qui exclut toute fuite vers l'API. Le rôle `p5_api` n'y a pas accès.
 
 **D8 — JWT.** Le claim `sub` vaut `str(user.id)` ; l'identité est donc stable même si le nom d'utilisateur change.
 
@@ -116,32 +109,31 @@ Le diagramme omet les colonnes de données de `building_records_raw` (miroir typ
 
 ### Écarts assumés par rapport à la spec
 
-1. `prediction_inputs.api_request_id` : clé étrangère **sans** `ON DELETE SET NULL`, incompatible avec le CHECK `(input_source = 'batch') = (api_request_id IS NULL)`.
-2. `/model/predict/compare` reçoit `{"building_id", "data_year"?}` comme `/model/predict`.
-3. `/token` refuse un utilisateur inactif (400), en plus du contrôle `is_active` dans `get_current_user`.
-4. `provision()` accepte un préfixe de rôles (`p5` en production, `p5test` en test) pour que les tests n'écrasent pas les mots de passe des rôles de développement sur la même instance.
-5. Index `api_requests` en `(user_id, created_at)` et `(path, created_at)` : un btree se parcourt dans les deux sens, `DESC` est inutile.
-6. `SELECT` est accordé à `p5_api` sur `api_requests`, `prediction_inputs` et `predictions` (en plus des droits de la spec), nécessaire pour `RETURNING` et `UPDATE`.
-7. Le compose comporte un service `tools` séparé (profil `tools`) avec des variables d'environnement explicites au lieu d'un `env_file` : les identifiants admin/propriétaire ne sont jamais transmis au service `api`. Le service `api` ne reçoit que `SECRET_KEY` et `DATABASE_URL` (obligatoire, sans valeur par défaut dans le code : erreur explicite au premier usage de la session).
-8. Ingestion : une colonne source **obligatoire** absente du fichier (`OSEBuildingID`, `DataYear`, les features du modèle, `NaturalGas(kBtu)`, `SteamUse(kBtu)` et les deux cibles, voir `REQUIRED_SOURCE_COLUMNS` dans `app/db/ingest.py`) fait échouer l'ingestion avec une erreur explicite, au lieu de donner NULL comme le prévoit la spec : un fichier dont l'harmonisation (`app/db/harmonize.py`) serait incomplète serait sinon ingéré sans features ni cibles, en silence. Les autres colonnes absentes donnent bien NULL.
-9. Mots de passe des rôles en clair dans le DDL : `create_db` exécute `CREATE ROLE … PASSWORD '…'` / `ALTER ROLE … PASSWORD '…'` avec le mot de passe en littéral (hashé en SCRAM par PostgreSQL au stockage). Si le serveur journalise le DDL (`log_statement = 'ddl'` ou `'all'`), ces mots de passe apparaissent en clair dans les journaux PostgreSQL : désactiver cette journalisation pendant le provisionnement (chaque exécution de `create_db` réapplique les mots de passe lus dans l'environnement).
+1. `/model/predict/compare` reçoit `{"building_id", "data_year"?}` comme `/model/predict`.
+2. `/token` refuse un utilisateur inactif (400), en plus du contrôle `is_active` dans `get_current_user`.
+3. `provision()` accepte un préfixe de rôles (`p5` en production, `p5test` en test) pour que les tests n'écrasent pas les mots de passe des rôles de développement sur la même instance.
+4. Index `api_requests` en `(user_id, created_at)` et `(path, created_at)` : un btree se parcourt dans les deux sens, `DESC` est inutile.
+5. `SELECT` est accordé à `p5_api` sur `api_requests` et `predictions` (en plus des droits de la spec), nécessaire pour `RETURNING` et `UPDATE`.
+6. Le compose comporte un service `tools` séparé (profil `tools`) avec des variables d'environnement explicites au lieu d'un `env_file` : les identifiants admin/propriétaire ne sont jamais transmis au service `api`. Le service `api` ne reçoit que `SECRET_KEY` et `DATABASE_URL` (obligatoire, sans valeur par défaut dans le code : erreur explicite au premier usage de la session).
+7. Ingestion : une colonne source **obligatoire** absente du fichier (`OSEBuildingID`, `DataYear`, les features du modèle, `NaturalGas(kBtu)`, `SteamUse(kBtu)` et les deux cibles, voir `REQUIRED_SOURCE_COLUMNS` dans `app/db/ingest.py`) fait échouer l'ingestion avec une erreur explicite, au lieu de donner NULL comme le prévoit la spec : un fichier dont l'harmonisation (`app/db/harmonize.py`) serait incomplète serait sinon ingéré sans features ni cibles, en silence. Les autres colonnes absentes donnent bien NULL.
+8. Mots de passe des rôles en clair dans le DDL : `create_db` exécute `CREATE ROLE … PASSWORD '…'` / `ALTER ROLE … PASSWORD '…'` avec le mot de passe en littéral (hashé en SCRAM par PostgreSQL au stockage). Si le serveur journalise le DDL (`log_statement = 'ddl'` ou `'all'`), ces mots de passe apparaissent en clair dans les journaux PostgreSQL : désactiver cette journalisation pendant le provisionnement (chaque exécution de `create_db` réapplique les mots de passe lus dans l'environnement).
 
 ### Limites connues
 
 - **`artifact_path` partagé.** Toutes les versions de `catboost-multitarget` pointent vers le même dossier `models/`. Si l'enregistrement dans `ml_models` échoue après l'écriture des fichiers, la version active peut ne pas correspondre aux fichiers `.cbm` servis.
 - **Version servie et redémarrage.** L'entraînement écrit `models/version.json` (`name`, `version`, `mlflow_run_id`) après l'enregistrement dans `ml_models`. L'API garde les `.cbm` en mémoire et lit ce fichier au premier chargement : chaque prédiction CatBoost référence la ligne `ml_models` de la version **chargée**, pas forcément la version active. Sans `version.json` (fichiers `.cbm` antérieurs), elle se replie sur la version active ; si la version chargée est absente du registre, la prédiction est refusée (503). **Redémarrer l'API après chaque entraînement** (`docker compose restart api`) pour servir la nouvelle version.
-- **`/model/predict/compare` et Kumo.** Si l'appel Kumo échoue, la route renvoie 503 mais conserve la ligne `prediction_inputs` et la prédiction CatBoost déjà calculée : la trace reflète l'appel réellement exécuté.
+- **`/model/predict/compare` et Kumo.** Si l'appel Kumo échoue, la route renvoie 503 mais conserve la prédiction CatBoost déjà enregistrée.
 - **Healthcheck.** Le healthcheck du `Dockerfile` appelle `/docs` toutes les 30 secondes ; ce chemin figure dans `UNTRACED_PATHS` du middleware de trace, il n'écrit donc rien en base.
 
 ## 3. Rôles et sécurité
 
 | Rôle | Base | Droits |
 |---|---|---|
-| `p5_owner` | `p5` | Propriétaire du schéma : migrations, `ingest`, `prepare`, entraînement, `evaluate` |
-| `p5_api` | `p5` | `SELECT` : `users`, `buildings`, `building_features`, `ml_models` ; `SELECT (id, building_id, data_year)` sur `building_records_raw` (droit **par colonne**, sans PII) ; `INSERT, UPDATE` : `api_requests` ; `INSERT` : `prediction_inputs`, `predictions` ; `USAGE` sur les séquences d'identité concernées |
+| `p5_owner` | `p5` | Propriétaire du schéma : migrations, `ingest`, entraînement, `evaluate` |
+| `p5_api` | `p5` | `SELECT` : `users`, `buildings`, `building_years`, `ml_models` ; `SELECT, INSERT, UPDATE` : `api_requests` ; `SELECT, INSERT` : `predictions` ; `USAGE` sur les séquences d'identité concernées |
 | `p5_mlflow` | `mlflow` | Propriétaire de la base `mlflow`, aucun droit sur `p5` |
 
-Le droit par colonne permet à l'API de résoudre `(building_id, data_year)` vers `record_id` sans jamais pouvoir lire une PII. `building_actuals` reste inaccessible à l'API (voir aussi l'écart n°6 pour les `SELECT` supplémentaires).
+`building_actuals` reste inaccessible à l'API : les cibles réelles ne peuvent pas fuiter.
 
 Les secrets (`password`, `access_token`, `client_secret`, insensible à la casse) sont remplacés par `"***"` à toute profondeur avant stockage dans `api_requests`. Aucun secret réel n'est commité : `.env` est ignoré par git, `.example.env` ne contient que des valeurs factices.
 
@@ -163,13 +155,12 @@ docker compose --profile tools build
 docker compose up -d db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-docker compose run --rm tools python -m app.db.prepare --year 2016
 # Les modèles models/*.cbm ne sont pas versionnés (git) : les entraîner avant de
 # démarrer l'API, sinon toute prédiction répond 503.
 docker compose run --rm tools python -m app.training
 docker compose up -d api
 TOKEN=$(curl -s -X POST localhost:8080/token -d "username=johndoe&password=secret" | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
-ID=$(docker compose exec -T db psql -U postgres -d p5 -Atc "SELECT r.building_id FROM building_features f JOIN building_records_raw r ON r.id=f.record_id LIMIT 1")
+ID=$(docker compose exec -T db psql -U postgres -d p5 -Atc "SELECT building_id FROM building_years LIMIT 1")
 curl -s -X POST localhost:8080/model/predict -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "{\"building_id\": $ID}"
 docker compose exec -T db psql -U postgres -d p5 -c "SELECT path, status_code, user_id FROM api_requests ORDER BY id DESC LIMIT 3"
 ```
@@ -194,10 +185,9 @@ docker compose restart api
 
 # Évaluation projetée sur les années de production
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
-
-# Régénération du DDL livrable (hors conteneur)
-DATABASE_OWNER_URL=postgresql+psycopg://x@localhost/p5 uv run alembic upgrade head --sql > docs/db/schema.sql
 ```
+
+`docs/db/schema.sql` décrit l'état final du schéma. `alembic upgrade head --sql` rejoue toute la chaîne (y compris les `DROP` de la migration `3b8e1f6a42c7`) : en extraire les `CREATE` des tables conservées et ceux de la dernière migration pour mettre le fichier à jour.
 
 **Service `tools` et fichiers de l'hôte.** Le service `tools` tourne avec l'uid/gid de l'hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour pouvoir écrire dans les montages `./models` et `./mlruns`. Si `id -u` / `id -g` ne valent pas 1000, ajouter `UID=…` et `GID=…` au fichier `.env` (en bash, `UID` est une variable en lecture seule non exportée : la définir dans `.env` est le plus simple). Créer les dossiers avant le premier lancement (`mkdir -p models mlruns`), sinon Docker les crée au nom de root. Les journaux CatBoost (`catboost_info/`) vont dans un `tmpfs` jetable.
 
@@ -217,7 +207,6 @@ for y in 2017 2018 2019; do
   docker compose run --rm tools python -m app.db.ingest --year $y \
     --csv data/${y}_Building_Energy_Benchmarking.csv
 done
-docker compose run --rm tools python -m app.db.prepare --year 2017 2018 2019
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 ```
 
@@ -230,9 +219,9 @@ docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 | `BuildingType` regroupé (`School`, `Hospital`, `University` ; plus de `Nonresidential COS` ni `Campus`) | valeur 2016 du bâtiment reprise s'il était déjà présent (et que son caractère résidentiel n'a pas changé), sinon `BUILDING_TYPE_FALLBACK` | 100 % (91,8 % sans la référence 2016) |
 | Libellés d'usage renommés (`Senior Living Community`, `Vehicle Dealership`, `Vehicle Repair Services`) | ramenés aux libellés 2016 (`USE_TYPE_LABELS`) | `LargestPropertyUseType` 99,1 % |
 
-Les colonnes propres à l'open data (`ComplianceIssue`, `Demolished`, `SelfReport*`) sont ignorées. Restent des différences de **contenu** que l'harmonisation ne corrige pas : Seattle a révisé ses données (usages secondaires renseignés là où le CSV 2016 était vide, émissions recalculées à ±1 %), et quelques libellés nouveaux (`Electric Vehicle Charging Station`, `Transportation Terminal/Station`…) sont inconnus du modèle, que CatBoost traite comme une modalité non vue. La préparation (`app.db.prepare`) est ensuite strictement celle de l'entraînement.
+Les colonnes propres à l'open data (`ComplianceIssue`, `Demolished`, `SelfReport*`) sont ignorées. Restent des différences de **contenu** que l'harmonisation ne corrige pas : Seattle a révisé ses données (usages secondaires renseignés là où le CSV 2016 était vide, émissions recalculées à ±1 %), et quelques libellés nouveaux (`Electric Vehicle Charging Station`, `Transportation Terminal/Station`…) sont inconnus du modèle, que CatBoost traite comme une modalité non vue. La préparation des features est ensuite strictement celle de l'entraînement, faite à l'ingestion.
 
-**Filtrage de l'évaluation projetée** (`exclusion_reason` dans `app/db/evaluate.py`). Comme pour l'entraînement, les bâtiments non conformes (`ComplianceStatus` ≠ `Compliant`) sont exclus. Le flag `Outlier` de 2016 n'existe plus dans l'open data ; il est remplacé par des plages d'intensité plausibles, arrondies depuis les bâtiments éligibles de 2016 : EUI réelle (`SiteEnergyUse` / `PropertyGFATotal`) entre 1 et 1 000 kBtu/sf, émissions ≤ 0,05 t CO2e/sf. Certaines déclarations sont en effet erronées tout en étant marquées `Compliant` (bâtiment 755 en 2019 : 5,9 × 10⁹ kBtu, 278 fois sa consommation 2018) et suffisaient à écraser le R² d'une année. Le nombre de bâtiments exclus est affiché (`n_excluded`).
+**Filtrage de l'évaluation projetée** (`building_years.exclusion_reason`, calculée à l'ingestion). Comme pour l'entraînement, les bâtiments non conformes (`ComplianceStatus` ≠ `Compliant`) sont exclus. Le flag `Outlier` de 2016 n'existe plus dans l'open data ; il est remplacé par des plages d'intensité plausibles, arrondies depuis les bâtiments éligibles de 2016 : EUI réelle (`SiteEnergyUse` / `PropertyGFATotal`) entre 1 et 1 000 kBtu/sf, émissions ≤ 0,05 t CO2e/sf. Certaines déclarations sont en effet erronées tout en étant marquées `Compliant` (bâtiment 755 en 2019 : 5,9 × 10⁹ kBtu, 278 fois sa consommation 2018) et suffisaient à écraser le R² d'une année. Le nombre de bâtiments exclus est affiché (`n_excluded`).
 
 | Année | Exclus | R² énergie | MedAPE énergie | R² émissions | MedAPE émissions |
 |---|---|---|---|---|---|
@@ -252,31 +241,22 @@ SELECT created_at, method, path, status_code, duration_ms
 FROM api_requests WHERE user_id = 1 ORDER BY created_at DESC LIMIT 20;
 
 -- Prédictions d'un bâtiment, toutes versions confondues
-SELECT r.data_year, m.name, m.version, p.energy_use_kbtu, p.predicted_at
+SELECT y.data_year, m.name, m.version, p.energy_use_kbtu, p.predicted_at
 FROM predictions p
-JOIN prediction_inputs i ON i.id = p.prediction_input_id
-JOIN building_records_raw r ON r.id = i.building_record_id
+JOIN building_years y ON y.id = p.building_year_id
 JOIN ml_models m ON m.id = p.model_id
-WHERE r.building_id = 1 ORDER BY p.predicted_at DESC;
+WHERE y.building_id = 1 ORDER BY p.predicted_at DESC;
 
--- Erreur médiane relative par année (évaluation projetée). La vue n'applique
--- aucun filtre : la jointure et les conditions reproduisent exclusion_reason
--- (app/db/evaluate.py : conformité, EUI entre 1 et 1 000 kBtu/sf, émissions
--- <= 0,05 t CO2e/sf) et redonnent la MedAPE énergie du tableau du §4 et le n
--- affiché par app.db.evaluate (1 400, 1 393 et 1 454 bâtiments de 2017 à 2019).
+-- Erreur médiane relative par année (évaluation projetée). La vue expose
+-- exclusion_reason : la condition reproduit le filtre de app.db.evaluate.
 SELECT e.data_year, e.model_version, count(*) AS n,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY e.rel_err_energy) AS medape_energy
 FROM v_projected_evaluation e
-JOIN building_records_raw r
-  ON r.building_id = e.building_id AND r.data_year = e.data_year
-WHERE r.compliance_status = 'Compliant'
-  AND (e.actual_energy_kbtu / NULLIF(r.property_gfa_total, 0)
-       BETWEEN 1 AND 1000) IS NOT FALSE
-  AND (e.actual_ghg_tco2e / NULLIF(r.property_gfa_total, 0) <= 0.05) IS NOT FALSE
-  AND e.actual_energy_kbtu > 0
+WHERE e.exclusion_reason IS NULL AND e.actual_energy_kbtu > 0
 GROUP BY e.data_year, e.model_version ORDER BY e.data_year;
 
 -- Répartition du jeu d'entraînement
-SELECT split, exclusion_reason, count(*) FROM building_features
-WHERE dataset_role = 'training' GROUP BY split, exclusion_reason;
+SELECT b.split, y.exclusion_reason, count(*)
+FROM building_years y JOIN buildings b ON b.id = y.building_id
+WHERE y.data_year = 2016 GROUP BY b.split, y.exclusion_reason;
 ```

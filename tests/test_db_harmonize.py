@@ -6,7 +6,7 @@ from sqlalchemy import select
 from synth import make_synth
 
 from app.db import harmonize, ingest
-from app.db.models import BuildingRecordRaw
+from app.db.models import BuildingYear
 
 OC_ONLY = [
     "PrimaryPropertyType",
@@ -98,7 +98,7 @@ def test_from_open_data_matches_2016_schema():
 
 def test_normalize_columns_accepts_open_data():
     out = ingest.normalize_columns(make_open_data(), 2017)
-    assert list(out.columns) == list(ingest.RAW_SQL)
+    assert list(out.columns) == list(ingest.SOURCE_COLUMNS)
     assert out["PrimaryPropertyType"].notna().all()
 
 
@@ -126,11 +126,9 @@ def test_ingest_open_data_reuses_2016_building_type(db):
     ref = make_synth(6)
     ref["BuildingType"] = "Nonresidential COS"
     with db() as s:
-        ingest.ingest_frame(s, ref, year=2016, source_file="2016.csv")
-        ingest.ingest_frame(s, make_open_data(6), year=2017, source_file="2017.csv")
+        ingest.ingest_frame(s, ref, year=2016)
+        ingest.ingest_frame(s, make_open_data(6), year=2017)
         types = s.scalars(
-            select(BuildingRecordRaw.building_type).where(
-                BuildingRecordRaw.data_year == 2017
-            )
+            select(BuildingYear.building_type).where(BuildingYear.data_year == 2017)
         ).all()
     assert set(types) == {"Nonresidential COS"}
