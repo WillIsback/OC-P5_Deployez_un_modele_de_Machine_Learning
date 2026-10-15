@@ -125,3 +125,14 @@ def test_reingest_removes_year_rows_leaving_scope(db):
         assert ingest.ingest_frame(s, df, year=2016) == n - 1
         assert _count(s, BuildingYear, BuildingYear.building_id == 0) == 0
         assert s.get(Building, 0).split is None
+
+
+@pytest.mark.db
+def test_reingest_with_no_building_in_scope_clears_the_year(db):
+    df = make_synth(40)
+    with db() as s:
+        ingest.ingest_frame(s, df, year=2016)
+        df["BuildingType"] = "Multifamily LR (1-4)"
+        assert ingest.ingest_frame(s, df, year=2016) == 0
+        assert _count(s, BuildingYear) == 0
+        assert _count(s, Building, Building.split.is_not(None)) == 0

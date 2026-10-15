@@ -39,6 +39,13 @@ def test_feature_rows_production_rows_have_no_split():
     }
 
 
+def test_feature_rows_training_without_eligible_building_has_no_split():
+    df = make_synth(40).assign(BuildingType="Multifamily LR (1-4)")
+    rows = prepare.build_feature_rows(df, training=True)
+    assert rows.empty
+    assert "split" in rows.columns
+
+
 def test_feature_rows_skip_missing_required_feature(caplog):
     df = make_synth(40)
     df.loc[0, "Latitude"] = np.nan

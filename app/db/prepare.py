@@ -49,8 +49,11 @@ def build_feature_rows(
         eligibility = dp.flag_training_eligibility(scoped)
         out["exclusion_reason"] = eligibility["exclusion_reason"]
         eligible = out.index[eligibility["is_training_eligible"].to_numpy(dtype=bool)]
-        split = dp.assign_split(eligible, test_size=test_size, seed=seed)
-        out["split"] = split.reindex(out.index)
+        if len(eligible):  # train_test_split refuse un échantillon vide
+            split = dp.assign_split(eligible, test_size=test_size, seed=seed)
+            out["split"] = split.reindex(out.index)
+        else:
+            out["split"] = None
     else:
         out["exclusion_reason"] = dp.flag_production_exclusion(scoped)
         out["split"] = None
