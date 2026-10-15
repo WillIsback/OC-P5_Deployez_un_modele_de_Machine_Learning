@@ -1,0 +1,16 @@
+# Développement (chargé automatiquement par `docker compose` depuis un clone) :
+# image construite depuis les sources au lieu de l'image GHCR, et ./models monté
+# pour servir / produire les modèles du dépôt (réentraînement).
+services:
+  api:
+    image: p5-energy:dev
+    build: .
+    volumes:
+      - ./models:/app/models:ro
+
+  tools:
+    image: p5-energy:dev
+    build: .
+    volumes:
+      # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
+      - ./models:/app/models

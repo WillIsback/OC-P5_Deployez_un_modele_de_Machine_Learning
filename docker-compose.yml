@@ -13,8 +13,11 @@ services:
       timeout: 5s
       retries: 10
 
+  # Image publiée sur GHCR (modèle livré inclus). Depuis un clone, le fichier
+  # docker-compose.override.yml (chargé automatiquement) la remplace par un build
+  # local et monte ./models. P5_IMAGE épingle une version : `…:v1.3.2`.
   api:
-    build: .
+    image: ${P5_IMAGE:-ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:latest}
     environment:
       SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
       DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}@db:5432/p5
@@ -23,16 +26,14 @@ services:
         condition: service_healthy
     ports:
       - "${API_PORT:-8080}:8080"
-    volumes:
-      - ./models:/app/models:ro
 
   # Outillage (non démarré par `up`) : provisionnement, ingestion, préparation,
   # évaluation, entraînement. Seul ce service reçoit les identifiants
   # admin/propriétaire (jamais le service `api`).
   tools:
-    build: .
+    image: ${P5_IMAGE:-ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:latest}
     profiles: ["tools"]
-    # Uid/gid de l'hôte pour écrire dans ./models et ./mlruns (montages liés).
+    # Uid/gid de l'hôte pour écrire dans ./data, ./models et ./mlruns (montages liés).
     # Si `id -u` / `id -g` ne valent pas 1000, définir UID et GID dans .env.
     user: "${UID:-1000}:${GID:-1000}"
     environment:
@@ -55,8 +56,6 @@ services:
     volumes:
       # Inscriptible : `app.db.ingest --download` peut y télécharger les CSV.
       - ./data:/app/data
-      # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
-      - ./models:/app/models
       # Artefacts MLflow (les métadonnées sont dans la base `mlflow`).
       - ./mlruns:/app/mlruns
     # Journaux d'entraînement CatBoost (catboost_info/ dans le dossier courant,

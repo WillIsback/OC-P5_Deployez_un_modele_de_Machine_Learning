@@ -67,7 +67,7 @@ Cela garantit :
 
 - Traçabilité : chaque tag correspond à un run de release
 - Immuabilité : pas de re-tag ou de modification d'un tag publié
-- Pas d'atomicité : le tag est poussé (`git push`) **avant** la création de la GitHub Release, dans deux étapes distinctes du job `publish`. Si la création de la release ou de l'image échoue, le tag reste en place : un nouveau run ne voit plus de commit depuis ce tag et renvoie `version=skipped`. La reprise passe par « Re-run failed jobs » sur le run en échec (voir [RELEASE.md](../../RELEASE.md))
+- Pas d'atomicité : le tag est poussé (`git push`) **avant** la création de la GitHub Release, dans deux étapes distinctes du job `publish`. Si la création de la release ou de l'image échoue, le tag reste en place : un nouveau run ne voit plus de commit depuis ce tag et renvoie `version=skipped`. La reprise passe par « Re-run failed jobs » sur le run en échec (voir [runbook de release](../release/README.md))
 
 ## 📋 CHANGELOG
 

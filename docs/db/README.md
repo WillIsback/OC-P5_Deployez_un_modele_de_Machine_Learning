@@ -145,29 +145,25 @@ Prérequis : Docker, et un fichier `.env` créé à partir de l'exemple (`cp .ex
 
 **Comptes de démonstration.** `create_db` ne crée `johndoe` (actif) et `alice` (inactive), mot de passe `secret`, que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec l'option `--demo-users`. Les modèles initiaux de `ml_models` sont créés dans tous les cas. **En production, laisser `P5_SEED_DEMO_USERS` à 0 ou absent** : un compte au mot de passe public donnerait accès à toute l'API.
 
-**Données sources.** `data/` est ignoré par git et monté en lecture-écriture dans le service `tools` (`./data:/app/data`) : l'option `--download` d'`app.db.ingest` peut donc écrire le CSV depuis le conteneur. Sur un clone neuf, on peut aussi télécharger le CSV 2016 depuis l'hôte (`uv sync` au préalable) :
+**Données sources.** `data/` est ignoré par git et monté en lecture-écriture dans le service `tools` (`./data:/app/data`) : l'option `--download` d'`app.db.ingest` télécharge le CSV depuis le conteneur (2016 : CSV du projet ; 2017–2019 : open data de Seattle, harmonisée).
+
+[`scripts/quickstart.sh`](../../scripts/quickstart.sh) enchaîne ces étapes (voir le [Quickstart](../../README.md#-quickstart)) ; en détail, depuis un clone :
 
 ```bash
-uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
-```
-
-```bash
-mkdir -p models mlruns
+mkdir -p data mlruns
 docker compose --profile tools build
-docker compose up -d db
+docker compose up -d --wait db
 docker compose run --rm tools python -m app.db.create_db
-docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-# Les modèles models/*.cbm ne sont pas versionnés (git) : les entraîner avant de
-# démarrer l'API, sinon toute prédiction répond 503.
-docker compose run --rm tools python -m app.training
-docker compose up -d api
+docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv --download
+docker compose run --rm tools python -m app.db.ingest --year 2019 --csv data/2019_Building_Energy_Benchmarking.csv --download
+docker compose up -d --wait api
 TOKEN=$(curl -s -X POST localhost:8080/token -d "username=johndoe&password=secret" | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
-ID=$(docker compose exec -T db psql -U postgres -d p5 -Atc "SELECT building_id FROM building_years LIMIT 1")
+ID=$(curl -s "localhost:8080/buildings?limit=1" -H "Authorization: Bearer $TOKEN" | python -c "import sys,json;print(json.load(sys.stdin)['items'][0]['building_id'])")
 curl -s -X POST localhost:8080/model/predict -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "{\"building_id\": $ID}"
 docker compose exec -T db psql -U postgres -d p5 -c "SELECT path, status_code, user_id FROM api_requests ORDER BY id DESC LIMIT 3"
 ```
 
-Les fichiers `models/*.cbm` sont ignorés par git : sur un clone neuf, ils n'existent qu'après l'étape `app.training` (environ une minute avec `--no-kumo --cv-splits 2`, plus longtemps avec les réglages par défaut). La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
+Le modèle entraîné est livré (`models/*.cbm`, version `baseline` enregistrée par `create_db`) : aucun entraînement n'est nécessaire. Seuls les bâtiments jamais vus par l'entraînement (ici, ceux apparus en 2019) sont prédictibles par identifiant. La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
 
 **Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`.
 
@@ -190,7 +186,7 @@ docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 
 `docs/db/schema.sql` décrit l'état final du schéma. `alembic upgrade head --sql` rejoue toute la chaîne (y compris les `DROP` de la migration `3b8e1f6a42c7`) : en extraire les `CREATE` des tables conservées et ceux de la dernière migration pour mettre le fichier à jour.
 
-**Service `tools` et fichiers de l'hôte.** Le service `tools` tourne avec l'uid/gid de l'hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour pouvoir écrire dans les montages `./models` et `./mlruns`. Si `id -u` / `id -g` ne valent pas 1000, ajouter `UID=…` et `GID=…` au fichier `.env` (en bash, `UID` est une variable en lecture seule non exportée : la définir dans `.env` est le plus simple). Créer les dossiers avant le premier lancement (`mkdir -p models mlruns`), sinon Docker les crée au nom de root. Les journaux CatBoost (`catboost_info/`) vont dans un `tmpfs` jetable.
+**Service `tools` et fichiers de l'hôte.** Le service `tools` tourne avec l'uid/gid de l'hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour pouvoir écrire dans les montages `./data`, `./models` et `./mlruns` (`./models` n'est monté que par `docker-compose.override.yml`, c'est-à-dire depuis un clone). Si `id -u` / `id -g` ne valent pas 1000, ajouter `UID=…` et `GID=…` au fichier `.env` (en bash, `UID` est une variable en lecture seule non exportée : la définir dans `.env` est le plus simple). Créer les dossiers avant le premier lancement (`mkdir -p data mlruns`, `models/` est versionné), sinon Docker les crée au nom de root. Les journaux CatBoost (`catboost_info/`) vont dans un `tmpfs` jetable.
 
 **Artefacts MLflow.** Les métadonnées MLflow sont dans la base `mlflow`, les artefacts dans `./mlruns` (monté sur `/app/mlruns`). Chaque expérience mémorise un `artifact_location` **absolu** fixé à sa création : une expérience créée depuis l'hôte (`uv run python -m app.training`) pointe vers `/chemin/de/l/hôte/mlruns/<id>`, introuvable dans le conteneur (l'entraînement échoue alors sur `PermissionError` à l'enregistrement des artefacts), et inversement une expérience créée par `tools` pointe vers `/app/mlruns/<id>`. Dans ce cas, soit entraîner en local avec `uv run python -m app.training`, soit utiliser une expérience dédiée au conteneur :
 
