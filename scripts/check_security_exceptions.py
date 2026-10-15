@@ -58,7 +58,7 @@ def main() -> int:
     if not REGISTRY.is_file():
         print(f"❌ Registre introuvable : {REGISTRY}")
         return 1
-    errors = check_registry(REGISTRY, dt.date.today())
+    errors = check_registry(REGISTRY, dt.datetime.now(dt.UTC).date())
     if errors:
         print("❌ Registre des exceptions de sécurité invalide :")
         for error in errors:
