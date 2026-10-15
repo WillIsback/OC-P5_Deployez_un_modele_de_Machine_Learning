@@ -44,6 +44,15 @@ def buildings(db):
         return {"2016": y16.id, "2018": y18.id}
 
 
+@pytest.fixture
+def seen_buildings(db):
+    """Bâtiments 10 (train) et 11 (test) : vus par l'entraînement."""
+    with db() as s:
+        add_year(s, 10, 2018, split="train")
+        add_year(s, 11, 2018, split="test")
+        s.commit()
+
+
 def _prediction(db, prediction_id) -> Prediction:
     with db() as s:
         return s.get(Prediction, prediction_id)
@@ -348,3 +357,34 @@ def test_loaded_version_unknown_in_registry_503(
     assert "Aucun modèle" in r.json()["detail"]
     with db() as s:
         assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+
+
+@pytest.mark.parametrize("building_id", [10, 11])
+@pytest.mark.parametrize("payload_extra", [{}, {"data_year": 2018}])
+@pytest.mark.parametrize("route", ["/model/predict", "/model/predict/compare"])
+def test_seen_building_prediction_403(
+    client,
+    db,
+    auth_headers,
+    demo_models,
+    seen_buildings,
+    route,
+    payload_extra,
+    building_id,
+):
+    r = client.post(
+        route, json={"building_id": building_id, **payload_extra}, headers=auth_headers
+    )
+    assert r.status_code == 403, r.text
+    assert "entraînement" in r.json()["detail"]
+    with db() as s:
+        assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+
+
+def test_manual_features_unaffected_by_seen_buildings(
+    client, auth_headers, demo_models, seen_buildings
+):
+    r = client.post(
+        "/model/predict/features", json=MANUAL_PAYLOAD, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text

@@ -31,6 +31,7 @@ router = APIRouter(
 
 UNAVAILABLE = {503: {"description": "Modèle, traçabilité ou base indisponible"}}
 BUILDING_RESPONSES = {
+    403: {"description": "Bâtiment déjà vu par l'entraînement"},
     404: {"description": "Bâtiment ou année introuvable"},
     422: {"description": "Bâtiment hors périmètre du modèle"},
     **UNAVAILABLE,
@@ -77,6 +78,12 @@ def _resolve(session: Session, payload: BuildingPredictionRequest) -> BuildingYe
         return ps.resolve_features(session, payload.building_id, payload.data_year)
     except ps.BuildingNotFound:
         raise HTTPException(404, f"Bâtiment {payload.building_id} inconnu")
+    except ps.BuildingSeen:
+        raise HTTPException(
+            403,
+            f"Bâtiment {payload.building_id} déjà vu par l'entraînement : "
+            "prédiction par identifiant refusée (voir GET /buildings)",
+        )
     except ps.YearNotFound:
         raise HTTPException(
             404,
