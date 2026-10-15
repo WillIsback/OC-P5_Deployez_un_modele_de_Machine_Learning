@@ -81,7 +81,7 @@ erDiagram
     }
 ```
 
-Le diagramme résume les 17 features de `building_years` (identiques à celles du modèle). Le DDL complet est dans [`schema.sql`](schema.sql), généré par `alembic upgrade head --sql` (voir §4). Il ne contient ni les rôles ni les `GRANT` (provisionnés par `app.db.create_db`) et inclut la table `alembic_version`.
+Le diagramme résume les 17 features de `building_years` (identiques à celles du modèle). Le DDL complet (état final) est dans [`schema.sql`](schema.sql) (voir §4). Il ne contient ni les rôles ni les `GRANT` (provisionnés par `app.db.create_db`) et inclut la table `alembic_version`.
 
 ## 2. Choix techniques
 
@@ -185,10 +185,9 @@ docker compose restart api
 
 # Évaluation projetée sur les années de production
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
-
-# Régénération du DDL livrable (hors conteneur)
-DATABASE_OWNER_URL=postgresql+psycopg://x@localhost/p5 uv run alembic upgrade head --sql > docs/db/schema.sql
 ```
+
+`docs/db/schema.sql` décrit l'état final du schéma. `alembic upgrade head --sql` rejoue toute la chaîne (y compris les `DROP` de la migration `3b8e1f6a42c7`) : en extraire les `CREATE` des tables conservées et ceux de la dernière migration pour mettre le fichier à jour.
 
 **Service `tools` et fichiers de l'hôte.** Le service `tools` tourne avec l'uid/gid de l'hôte (`user: "${UID:-1000}:${GID:-1000}"`) pour pouvoir écrire dans les montages `./models` et `./mlruns`. Si `id -u` / `id -g` ne valent pas 1000, ajouter `UID=…` et `GID=…` au fichier `.env` (en bash, `UID` est une variable en lecture seule non exportée : la définir dans `.env` est le plus simple). Créer les dossiers avant le premier lancement (`mkdir -p models mlruns`), sinon Docker les crée au nom de root. Les journaux CatBoost (`catboost_info/`) vont dans un `tmpfs` jetable.
 
