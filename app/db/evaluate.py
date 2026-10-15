@@ -30,6 +30,35 @@ TARGET_PAIRS = {
     "emissions": ("predicted_ghg_tco2e", "actual_ghg_tco2e"),
 }
 
+# Plages plausibles d'intensité (cible réelle / PropertyGFATotal), arrondies à
+# partir des bâtiments éligibles de 2016 (EUI 1,4–906 kBtu/sf ; émissions
+# ≤ 34 kg CO2e/sf). L'open data n'a plus la colonne Outlier de 2016 : sans ce
+# garde-fou, une seule déclaration erronée (bâtiment 755 en 2019, 278 fois sa
+# consommation 2018) suffit à écraser le R² d'une année.
+SITE_EUI_RANGE = (1.0, 1000.0)  # kBtu/sf
+GHG_INTENSITY_MAX = 0.05  # t CO2e/sf
+
+
+def exclusion_reason(df: pd.DataFrame) -> pd.Series:
+    """Raison d'exclure un bâtiment de l'évaluation (None = conservé).
+
+    Reprend les filtres de l'entraînement (conformité) et remplace le flag
+    Outlier, absent après 2016, par les plages d'intensité ci-dessus.
+    """
+    reason = pd.Series([None] * len(df), index=df.index, dtype=object)
+    gfa = df["property_gfa_total"].where(df["property_gfa_total"] > 0)
+    eui = df["actual_energy_kbtu"] / gfa
+    ghg = df["actual_ghg_tco2e"] / gfa
+    low, high = SITE_EUI_RANGE
+    checks = [
+        (df["compliance_status"].ne("Compliant"), "non_compliant"),
+        ((eui < low) | (eui > high), "aberrant_energy"),
+        (ghg > GHG_INTENSITY_MAX, "aberrant_emissions"),
+    ]
+    for mask, label in checks:
+        reason[mask & reason.isna()] = label
+    return reason
+
 
 def _pending_features(
     session: Session, model: MlModel, years: list[int]
@@ -57,13 +86,20 @@ def _pending_features(
 def projected_metrics(
     session: Session, model: MlModel, years: list[int]
 ) -> pd.DataFrame:
-    """Métriques par année et par cible, calculées depuis la vue SQL."""
+    """Métriques par année et par cible, calculées depuis la vue SQL.
+
+    Les bâtiments non conformes ou aux intensités aberrantes sont exclus
+    (``exclusion_reason``) ; leur nombre est reporté dans ``n_excluded``.
+    """
     rows = (
         session.execute(
             text(
-                "SELECT * FROM v_projected_evaluation "
-                "WHERE model_name = :name AND model_version = :version "
-                "AND data_year = ANY(:years)"
+                "SELECT e.*, r.compliance_status, r.property_gfa_total "
+                "FROM v_projected_evaluation e "
+                "JOIN building_records_raw r "
+                "ON r.building_id = e.building_id AND r.data_year = e.data_year "
+                "WHERE e.model_name = :name AND e.model_version = :version "
+                "AND e.data_year = ANY(:years)"
             ),
             {"name": model.name, "version": model.version, "years": years},
         )
@@ -73,15 +109,24 @@ def projected_metrics(
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(r) for r in rows])
+    df["exclusion_reason"] = exclusion_reason(df)
     out = []
     for year, group in df.groupby("data_year"):
+        excluded = int(group["exclusion_reason"].notna().sum())
+        kept = group.loc[group["exclusion_reason"].isna()]
         for target, (pred_col, actual_col) in TARGET_PAIRS.items():
-            ok = group[actual_col] > 0
+            ok = kept[actual_col] > 0
             if not ok.any():
                 continue
-            scores = metrics_reelles(group.loc[ok, actual_col], group.loc[ok, pred_col])
+            scores = metrics_reelles(kept.loc[ok, actual_col], kept.loc[ok, pred_col])
             out.append(
-                {"data_year": int(year), "target": target, "n": int(ok.sum()), **scores}
+                {
+                    "data_year": int(year),
+                    "target": target,
+                    "n": int(ok.sum()),
+                    "n_excluded": excluded,
+                    **scores,
+                }
             )
     return pd.DataFrame(out)
 

@@ -123,7 +123,7 @@ Le diagramme omet les colonnes de données de `building_records_raw` (miroir typ
 5. Index `api_requests` en `(user_id, created_at)` et `(path, created_at)` : un btree se parcourt dans les deux sens, `DESC` est inutile.
 6. `SELECT` est accordé à `p5_api` sur `api_requests`, `prediction_inputs` et `predictions` (en plus des droits de la spec), nécessaire pour `RETURNING` et `UPDATE`.
 7. Le compose comporte un service `tools` séparé (profil `tools`) avec des variables d'environnement explicites au lieu d'un `env_file` : les identifiants admin/propriétaire ne sont jamais transmis au service `api`. Le service `api` ne reçoit que `SECRET_KEY` et `DATABASE_URL` (obligatoire, sans valeur par défaut dans le code : erreur explicite au premier usage de la session).
-8. Ingestion : une colonne source **obligatoire** absente du fichier (`OSEBuildingID`, `DataYear`, les features du modèle, `NaturalGas(kBtu)`, `SteamUse(kBtu)` et les deux cibles, voir `REQUIRED_SOURCE_COLUMNS` dans `app/db/ingest.py`) fait échouer l'ingestion avec une erreur explicite, au lieu de donner NULL comme le prévoit la spec : un fichier dont le renommage `YEAR_COLUMN_RENAMES` est incomplet serait sinon ingéré sans features ni cibles, en silence. Les autres colonnes absentes donnent bien NULL.
+8. Ingestion : une colonne source **obligatoire** absente du fichier (`OSEBuildingID`, `DataYear`, les features du modèle, `NaturalGas(kBtu)`, `SteamUse(kBtu)` et les deux cibles, voir `REQUIRED_SOURCE_COLUMNS` dans `app/db/ingest.py`) fait échouer l'ingestion avec une erreur explicite, au lieu de donner NULL comme le prévoit la spec : un fichier dont l'harmonisation (`app/db/harmonize.py`) serait incomplète serait sinon ingéré sans features ni cibles, en silence. Les autres colonnes absentes donnent bien NULL.
 9. Mots de passe des rôles en clair dans le DDL : `create_db` exécute `CREATE ROLE … PASSWORD '…'` / `ALTER ROLE … PASSWORD '…'` avec le mot de passe en littéral (hashé en SCRAM par PostgreSQL au stockage). Si le serveur journalise le DDL (`log_statement = 'ddl'` ou `'all'`), ces mots de passe apparaissent en clair dans les journaux PostgreSQL : désactiver cette journalisation pendant le provisionnement (chaque exécution de `create_db` réapplique les mots de passe lus dans l'environnement).
 
 ### Limites connues
@@ -198,12 +198,37 @@ docker compose run --rm -e MLFLOW_EXPERIMENT=seattle-energy-docker tools python 
 
 ### Années de production 2017–2019
 
-Les fichiers CSV 2017, 2018 et 2019 ne sont **pas** fournis dans `data/` : il faut les y déposer, puis compléter la table `YEAR_COLUMN_RENAMES` de `app/db/ingest.py` (renommage des colonnes source vers les noms du schéma 2016, une entrée par année) avant de les ingérer. Ensuite, pour chaque année :
+Les années 2017, 2018 et 2019 proviennent de l'open data de Seattle ([Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e/about_data)). `data/` n'est pas versionné : `--download` récupère l'export complet et n'en garde que l'année demandée.
 
 ```bash
-docker compose run --rm tools python -m app.db.ingest --year 2017 --csv data/<fichier_2017>.csv
-docker compose run --rm tools python -m app.db.prepare --year 2017
+for y in 2017 2018 2019; do
+  docker compose run --rm tools python -m app.db.ingest --year $y \
+    --csv data/${y}_Building_Energy_Benchmarking.csv --download
+done
+docker compose run --rm tools python -m app.db.prepare --year 2017 2018 2019
+docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 ```
+
+**Harmonisation vers le schéma 2016** (`app/db/harmonize.py`, appliquée à l'ingestion dès que la colonne `EPAPropertyType` est présente). Le jeu open data n'a pas le schéma du CSV 2016 sur lequel le modèle est entraîné ; les correspondances ont été établies en croisant les lignes 2016 des deux sources (3 194 bâtiments communs) :
+
+| Écart | Traitement | Concordance mesurée sur 2016 (périmètre non résidentiel) |
+|---|---|---|
+| `BuildingName`, `PropertyGFABuildings` | renommées en `PropertyName`, `PropertyGFABuilding(s)` | — |
+| `PrimaryPropertyType` absente | reconstituée depuis `EPAPropertyType` (`EPA_TO_PRIMARY`, sinon `Other`) ; `Office` scindé en `Large Office` / `Small- and Mid-Sized Office` au seuil de 100 000 sf de `PropertyGFATotal` | 98,6 % |
+| `BuildingType` regroupé (`School`, `Hospital`, `University` ; plus de `Nonresidential COS` ni `Campus`) | valeur 2016 du bâtiment reprise s'il était déjà présent (et que son caractère résidentiel n'a pas changé), sinon `BUILDING_TYPE_FALLBACK` | 100 % (91,8 % sans la référence 2016) |
+| Libellés d'usage renommés (`Senior Living Community`, `Vehicle Dealership`, `Vehicle Repair Services`) | ramenés aux libellés 2016 (`USE_TYPE_LABELS`) | `LargestPropertyUseType` 99,1 % |
+
+Les colonnes propres à l'open data (`ComplianceIssue`, `Demolished`, `SelfReport*`) sont ignorées. Restent des différences de **contenu** que l'harmonisation ne corrige pas : Seattle a révisé ses données (usages secondaires renseignés là où le CSV 2016 était vide, émissions recalculées à ±1 %), et quelques libellés nouveaux (`Electric Vehicle Charging Station`, `Transportation Terminal/Station`…) sont inconnus du modèle, que CatBoost traite comme une modalité non vue. La préparation (`app.db.prepare`) est ensuite strictement celle de l'entraînement.
+
+**Filtrage de l'évaluation projetée** (`exclusion_reason` dans `app/db/evaluate.py`). Comme pour l'entraînement, les bâtiments non conformes (`ComplianceStatus` ≠ `Compliant`) sont exclus. Le flag `Outlier` de 2016 n'existe plus dans l'open data ; il est remplacé par des plages d'intensité plausibles, arrondies depuis les bâtiments éligibles de 2016 : EUI réelle (`SiteEnergyUse` / `PropertyGFATotal`) entre 1 et 1 000 kBtu/sf, émissions ≤ 0,05 t CO2e/sf. Certaines déclarations sont en effet erronées tout en étant marquées `Compliant` (bâtiment 755 en 2019 : 5,9 × 10⁹ kBtu, 278 fois sa consommation 2018) et suffisaient à écraser le R² d'une année. Le nombre de bâtiments exclus est affiché (`n_excluded`).
+
+| Année | Exclus | R² énergie | MedAPE énergie | R² émissions | MedAPE émissions |
+|---|---|---|---|---|---|
+| 2017 | 137 | 0,51 | 32,5 % | 0,44 | 43,6 % |
+| 2018 | 170 | 0,42 | 32,8 % | 0,51 | 46,1 % |
+| 2019 | 124 | 0,31 | 33,5 % | 0,31 | 45,0 % |
+
+(modèle `catboost-multitarget v20261015090207` ; jeu de test 2016 : MedAPE 36,2 % / 46,4 %.)
 
 L'ingestion est idempotente (upsert sur `(building_id, data_year)`) ; les doublons d'`OSEBuildingID` sont dédupliqués (dernier gardé) avec un avertissement.
 
