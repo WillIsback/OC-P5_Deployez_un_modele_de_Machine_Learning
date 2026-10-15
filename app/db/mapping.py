@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import Boolean, Double, Integer, String
 
-from app.db.models import BuildingFeatures
+from app.db.models import BuildingYear
 from app.schemas.api import TARGETS
 
 # Ordre identique à FEATURE_COLUMNS (vérifié par les tests).
@@ -40,55 +40,55 @@ TARGET_SQL: dict[str, str] = {
     TARGETS["emissions"]["column"]: "total_ghg_emissions_tco2e",
 }
 
-# Colonnes du CSV 2016 → colonnes de building_records_raw.
-RAW_SQL: dict[str, str] = {
-    "OSEBuildingID": "building_id",
-    "DataYear": "data_year",
-    "BuildingType": "building_type",
-    "PrimaryPropertyType": "primary_property_type",
-    "PropertyName": "property_name",
-    "Address": "address",
-    "City": "city",
-    "State": "state",
-    "ZipCode": "zip_code",
-    "TaxParcelIdentificationNumber": "tax_parcel_identification_number",
-    "CouncilDistrictCode": "council_district_code",
-    "Neighborhood": "neighborhood",
-    "Latitude": "latitude",
-    "Longitude": "longitude",
-    "YearBuilt": "year_built",
-    "NumberofBuildings": "number_of_buildings",
-    "NumberofFloors": "number_of_floors",
-    "PropertyGFATotal": "property_gfa_total",
-    "PropertyGFAParking": "property_gfa_parking",
-    "PropertyGFABuilding(s)": "property_gfa_buildings",
-    "ListOfAllPropertyUseTypes": "list_of_all_property_use_types",
-    "LargestPropertyUseType": "largest_property_use_type",
-    "LargestPropertyUseTypeGFA": "largest_property_use_type_gfa",
-    "SecondLargestPropertyUseType": "second_largest_property_use_type",
-    "SecondLargestPropertyUseTypeGFA": "second_largest_property_use_type_gfa",
-    "ThirdLargestPropertyUseType": "third_largest_property_use_type",
-    "ThirdLargestPropertyUseTypeGFA": "third_largest_property_use_type_gfa",
-    "YearsENERGYSTARCertified": "years_energy_star_certified",
-    "ENERGYSTARScore": "energy_star_score",
-    "SiteEUI(kBtu/sf)": "site_eui_kbtu_sf",
-    "SiteEUIWN(kBtu/sf)": "site_eui_wn_kbtu_sf",
-    "SourceEUI(kBtu/sf)": "source_eui_kbtu_sf",
-    "SourceEUIWN(kBtu/sf)": "source_eui_wn_kbtu_sf",
-    "SiteEnergyUse(kBtu)": "site_energy_use_kbtu",
-    "SiteEnergyUseWN(kBtu)": "site_energy_use_wn_kbtu",
-    "SteamUse(kBtu)": "steam_use_kbtu",
-    "Electricity(kWh)": "electricity_kwh",
-    "Electricity(kBtu)": "electricity_kbtu",
-    "NaturalGas(therms)": "natural_gas_therms",
-    "NaturalGas(kBtu)": "natural_gas_kbtu",
-    "DefaultData": "default_data",
-    "Comments": "comments",
-    "ComplianceStatus": "compliance_status",
-    "Outlier": "outlier",
-    "TotalGHGEmissions": "total_ghg_emissions",
-    "GHGEmissionsIntensity": "ghg_emissions_intensity",
-}
+# Colonnes du CSV 2016 conservées à l'ingestion (les autres sont ignorées).
+SOURCE_COLUMNS: tuple[str, ...] = (
+    "OSEBuildingID",
+    "DataYear",
+    "BuildingType",
+    "PrimaryPropertyType",
+    "PropertyName",
+    "Address",
+    "City",
+    "State",
+    "ZipCode",
+    "TaxParcelIdentificationNumber",
+    "CouncilDistrictCode",
+    "Neighborhood",
+    "Latitude",
+    "Longitude",
+    "YearBuilt",
+    "NumberofBuildings",
+    "NumberofFloors",
+    "PropertyGFATotal",
+    "PropertyGFAParking",
+    "PropertyGFABuilding(s)",
+    "ListOfAllPropertyUseTypes",
+    "LargestPropertyUseType",
+    "LargestPropertyUseTypeGFA",
+    "SecondLargestPropertyUseType",
+    "SecondLargestPropertyUseTypeGFA",
+    "ThirdLargestPropertyUseType",
+    "ThirdLargestPropertyUseTypeGFA",
+    "YearsENERGYSTARCertified",
+    "ENERGYSTARScore",
+    "SiteEUI(kBtu/sf)",
+    "SiteEUIWN(kBtu/sf)",
+    "SourceEUI(kBtu/sf)",
+    "SourceEUIWN(kBtu/sf)",
+    "SiteEnergyUse(kBtu)",
+    "SiteEnergyUseWN(kBtu)",
+    "SteamUse(kBtu)",
+    "Electricity(kWh)",
+    "Electricity(kBtu)",
+    "NaturalGas(therms)",
+    "NaturalGas(kBtu)",
+    "DefaultData",
+    "Comments",
+    "ComplianceStatus",
+    "Outlier",
+    "TotalGHGEmissions",
+    "GHGEmissionsIntensity",
+)
 
 _TRUE_STRINGS = frozenset({"true", "t", "1", "yes", "y"})
 
@@ -132,7 +132,7 @@ def coerce_row(model_cls: Any, row: Mapping[str, Any]) -> dict[str, Any]:
 def features_to_sql(features: Mapping[str, Any]) -> dict[str, Any]:
     """Features nommées comme FEATURE_COLUMNS → colonnes SQL typées."""
     return coerce_row(
-        BuildingFeatures, {col: features[name] for name, col in FEATURE_SQL.items()}
+        BuildingYear, {col: features[name] for name, col in FEATURE_SQL.items()}
     )
 
 
