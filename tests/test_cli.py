@@ -55,6 +55,7 @@ def test_main_writes_version_file_of_registered_model(db, monkeypatch, tmp_path)
     monkeypatch.setattr(cli, "load_training_data", lambda session: object())
     monkeypatch.setattr(cli, "TrainPipeline", FakePipeline)
     monkeypatch.chdir(tmp_path)  # --output-dir doit être sous le répertoire courant
+    (tmp_path / "out").mkdir()
     cli.main(["--output-dir", "out", "--no-kumo"])
 
     info = json.loads((tmp_path / "out" / "version.json").read_text())
