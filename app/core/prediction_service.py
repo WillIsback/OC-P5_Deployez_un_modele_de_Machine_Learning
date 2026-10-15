@@ -28,6 +28,10 @@ class BuildingOutOfScope(LookupError):
     """Le bâtiment n'a aucune feature exploitable (résidentiel, données incomplètes)."""
 
 
+class BuildingSeen(LookupError):
+    """Le bâtiment a servi à l'entraînement ou à son évaluation (train ou test)."""
+
+
 @dataclass(frozen=True)
 class ModelInput:
     """Entrée du modèle et origine : requête API, ligne d'année si bâtiment connu."""
@@ -41,8 +45,11 @@ def resolve_features(
     session: Session, building_id: int, data_year: int | None = None
 ) -> BuildingYear:
     """Features du bâtiment pour l'année demandée (ou la plus récente)."""
-    if session.get(Building, building_id) is None:
+    building = session.get(Building, building_id)
+    if building is None:
         raise BuildingNotFound(building_id)
+    if building.split is not None:
+        raise BuildingSeen(building_id)
     base = select(BuildingYear).where(BuildingYear.building_id == building_id)
     if data_year is None:
         row = session.scalars(

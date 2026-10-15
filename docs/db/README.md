@@ -107,6 +107,8 @@ Le diagramme résume les 17 features de `building_years` (identiques à celles d
 
 **D11 — Stack.** SQLAlchemy 2.0 (déclaratif typé) et Alembic ; `sqlmodel` est retiré. Driver : `psycopg` 3 (URL `postgresql+psycopg://…`).
 
+**D12 — Consultation.** `GET /buildings` et `GET /buildings/{id}` ne renvoient que les bâtiments `buildings.split IS NULL` ayant au moins une ligne `building_years` (définition unique : `building_service.unseen_conditions`). Un bâtiment vu répond 404 en consultation et 403 sur `/model/predict` et `/model/predict/compare`. Les lignes 2016 des bâtiments exclus de l'entraînement sont consultables (le modèle ne les a jamais vues). La saisie libre (`/model/predict/features`) n'est pas concernée.
+
 ### Écarts assumés par rapport à la spec
 
 1. `/model/predict/compare` reçoit `{"building_id", "data_year"?}` comme `/model/predict`.

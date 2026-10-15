@@ -201,6 +201,13 @@ La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). 
 
 La route `POST /model/predict` prédit, à partir d'un `building_id` présent en base (features calculées à l'ingestion), la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
 
+**Retrouver un bâtiment avant de prédire.** `GET /buildings` cherche parmi les bâtiments **jamais vus par l'entraînement** (ni `train` ni `test`) : seuls ceux-là sont consultables et prédictibles par `building_id` (`/model/predict` et `/model/predict/compare` répondent 403 pour un bâtiment vu). Filtres : `q` (nom ou adresse), `year`, `neighborhood`, `building_type`, `limit` (100 au plus), `offset`. Aucune valeur réelle (consommation, émissions) n'est exposée.
+
+```bash
+curl "http://localhost:8080/buildings?q=needle&year=2018" -H "Authorization: Bearer <TOKEN>"
+curl http://localhost:8080/buildings/1 -H "Authorization: Bearer <TOKEN>"   # identité et features par année
+```
+
 Exemple d'appel par identifiant de bâtiment (`data_year` optionnel : par défaut l'année la plus récente disponible) :
 
 ```bash
@@ -214,6 +221,7 @@ La réponse inclut `prediction_id` et `request_id` (en-tête `X-Request-ID`) pou
 
 - **400** sur `POST /token` : identifiants incorrects ou compte inactif ;
 - **401** sur `/model/*` : jeton absent, invalide ou expiré, ou utilisateur supprimé/désactivé depuis l'émission ;
+- **403** : bâtiment déjà vu par l'entraînement (`train` ou `test`) ;
 - **404** : bâtiment ou année inconnus ;
 - **422** : bâtiment hors périmètre (ex. résidentiel), ou corps de requête invalide (champ inconnu refusé, `extra="forbid"`, ou valeur hors bornes, voir `app/schemas/api.py`) ;
 - **503** : modèle indisponible (aucun modèle actif ou `.cbm` absent), base de données ou traçabilité indisponible (aucune prédiction n'est servie sans trace).
