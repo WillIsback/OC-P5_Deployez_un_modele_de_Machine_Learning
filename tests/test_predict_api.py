@@ -4,18 +4,10 @@ import json
 
 import pytest
 from sqlalchemy import func, select, update
-from synth import EXAMPLE_FEATURES, add_record
+from synth import EXAMPLE_FEATURES, add_building, add_year
 
 from app.core import kumo_service, model_service
-from app.db import mapping
-from app.db.models import (
-    ApiRequest,
-    BuildingFeatures,
-    MlModel,
-    Prediction,
-    PredictionInput,
-    User,
-)
+from app.db.models import ApiRequest, MlModel, Prediction, User
 from app.db.registry import CATBOOST_NAME
 
 pytestmark = pytest.mark.db
@@ -43,29 +35,18 @@ MANUAL_PAYLOAD = {
 
 @pytest.fixture
 def buildings(db):
-    """Bâtiment 1 (2016, 2018) dans le périmètre ; bâtiment 2 résidentiel."""
+    """Bâtiment 1 (2016, 2018) dans le périmètre ; bâtiment 2 résidentiel (sans année)."""
     with db() as s:
-        r16 = add_record(s, 1, 2016)
-        r18 = add_record(s, 1, 2018)
-        add_record(s, 2, 2018, building_type="Multifamily LR (1-4)")
-        for rec in (r16, r18):
-            s.add(
-                BuildingFeatures(
-                    record_id=rec.id,
-                    dataset_role="production",
-                    is_training_eligible=False,
-                    prep_version="t",
-                    **mapping.features_to_sql(EXAMPLE_FEATURES),
-                )
-            )
+        y16 = add_year(s, 1, 2016)
+        y18 = add_year(s, 1, 2018)
+        add_building(s, 2)
         s.commit()
-        return {"2016": r16.id, "2018": r18.id}
+        return {"2016": y16.id, "2018": y18.id}
 
 
-def _input(db, prediction_id) -> PredictionInput:
+def _prediction(db, prediction_id) -> Prediction:
     with db() as s:
-        pred = s.get(Prediction, prediction_id)
-        return s.get(PredictionInput, pred.prediction_input_id)
+        return s.get(Prediction, prediction_id)
 
 
 def test_predict_by_id_uses_latest_year(
@@ -76,10 +57,13 @@ def test_predict_by_id_uses_latest_year(
     body = r.json()
     assert body["energy_use_kbtu"] > 0
     assert body["request_id"] == r.headers["x-request-id"]
-    inp = _input(db, body["prediction_id"])
-    assert inp.input_source == "building_id"
-    assert inp.building_record_id == buildings["2018"]
-    assert inp.api_request_id is not None
+    pred = _prediction(db, body["prediction_id"])
+    assert pred.building_year_id == buildings["2018"]
+    assert pred.api_request_id is not None
+    assert (
+        pred.input_features["PropertyGFABuilding(s)"]
+        == EXAMPLE_FEATURES["PropertyGFABuilding(s)"]
+    )
 
 
 def test_predict_trace_carries_authenticated_user(
@@ -103,7 +87,8 @@ def test_predict_by_id_and_year(client, db, auth_headers, demo_models, buildings
         headers=auth_headers,
     )
     assert r.status_code == 200, r.text
-    assert _input(db, r.json()["prediction_id"]).building_record_id == buildings["2016"]
+    pred = _prediction(db, r.json()["prediction_id"])
+    assert pred.building_year_id == buildings["2016"]
 
 
 def test_unknown_building_404(client, auth_headers, buildings):
@@ -142,10 +127,10 @@ def test_manual_features_prediction(client, db, auth_headers, demo_models):
         "/model/predict/features", json=MANUAL_PAYLOAD, headers=auth_headers
     )
     assert r.status_code == 200, r.text
-    inp = _input(db, r.json()["prediction_id"])
-    assert inp.input_source == "manual"
-    assert inp.building_record_id is None
-    assert inp.property_gfa_buildings == 15000
+    pred = _prediction(db, r.json()["prediction_id"])
+    assert pred.building_year_id is None
+    assert pred.api_request_id is not None
+    assert pred.input_features["PropertyGFABuilding(s)"] == 15000
 
 
 def test_manual_features_reject_extra_field(client, auth_headers):
@@ -154,7 +139,7 @@ def test_manual_features_reject_extra_field(client, auth_headers):
     assert r.status_code == 422
 
 
-def test_compare_one_input_two_predictions(
+def test_compare_two_predictions_share_request_and_year(
     client, db, auth_headers, demo_models, buildings
 ):
     r = client.post(
@@ -163,25 +148,29 @@ def test_compare_one_input_two_predictions(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["kumo_prediction"]["model_name"] == "kumo-tabular-zero-shot"
-    cb_input = _input(db, body["catboost_prediction"]["prediction_id"])
-    km_input = _input(db, body["kumo_prediction"]["prediction_id"])
-    assert cb_input.id == km_input.id
+    cb = _prediction(db, body["catboost_prediction"]["prediction_id"])
+    km = _prediction(db, body["kumo_prediction"]["prediction_id"])
+    assert cb.api_request_id == km.api_request_id
+    assert cb.building_year_id == km.building_year_id == buildings["2018"]
+    assert cb.model_id != km.model_id
 
 
-def test_model_failure_keeps_input_without_prediction(
+def test_model_failure_leaves_no_prediction_but_traces_request(
     client, db, auth_headers, buildings, monkeypatch
 ):
     def boom(df):
         raise FileNotFoundError("modèle absent")
 
     monkeypatch.setattr(model_service, "predict_frame", boom)
-    with db() as s:
-        before = s.scalar(select(func.count()).select_from(PredictionInput))
     r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
     assert r.status_code == 503
     with db() as s:
-        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before + 1
         assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+        row = s.scalar(
+            select(ApiRequest).where(ApiRequest.request_id == r.headers["x-request-id"])
+        )
+        assert row.status_code == 503
+        assert row.request_body == {"building_id": 1}
 
 
 def test_no_active_model_503(client, db, auth_headers, demo_models, buildings):
@@ -247,29 +236,23 @@ def test_untraced_request_refuses_prediction(
     client, db, auth_headers, demo_models, buildings, no_trace, route, payload
 ):
     with db() as s:
-        before = s.scalar(select(func.count()).select_from(PredictionInput))
+        before = s.scalar(select(func.count()).select_from(Prediction))
     r = client.post(route, json=payload, headers=auth_headers)
     assert r.status_code == 503
     assert r.json()["detail"] == "Traçabilité indisponible, prédiction refusée"
     with db() as s:
-        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before
-        assert s.scalar(select(func.count()).select_from(Prediction)) == 0
+        assert s.scalar(select(func.count()).select_from(Prediction)) == before
 
 
-def test_model_unexpected_error_503_keeps_input(
-    client, db, auth_headers, buildings, monkeypatch
-):
+def test_model_unexpected_error_503(client, db, auth_headers, buildings, monkeypatch):
     def boom(df):
         raise RuntimeError("secret /chemin/interne")
 
     monkeypatch.setattr(model_service, "predict_frame", boom)
-    with db() as s:
-        before = s.scalar(select(func.count()).select_from(PredictionInput))
     r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
     assert r.status_code == 503
     assert r.json()["detail"] == "Modèle CatBoost indisponible"
     with db() as s:
-        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before + 1
         assert s.scalar(select(func.count()).select_from(Prediction)) == 0
 
 
@@ -280,21 +263,18 @@ def test_compare_kumo_failure_503_keeps_catboost(
         raise RuntimeError("kumo hors service")
 
     monkeypatch.setattr(kumo_service, "predict_batch", boom)
-    with db() as s:
-        before = s.scalar(select(func.count()).select_from(PredictionInput))
     r = client.post(
         "/model/predict/compare", json={"building_id": 1}, headers=auth_headers
     )
     assert r.status_code == 503
     assert r.json()["detail"] == "Modèle Kumo-Tabular indisponible"
     with db() as s:
-        assert s.scalar(select(func.count()).select_from(PredictionInput)) == before + 1
         assert s.scalar(select(func.count()).select_from(Prediction)) == 1
 
 
-def test_raw_record_without_features_422(client, db, auth_headers, buildings):
+def test_building_without_year_rows_422(client, db, auth_headers, buildings):
     with db() as s:
-        add_record(s, 3, 2018)
+        add_building(s, 3)
         s.commit()
     r = client.post(
         "/model/predict",

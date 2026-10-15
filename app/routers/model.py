@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from ..core import metrics_service
 from ..core import prediction_service as ps
 from ..core.security import get_current_user
-from ..db.mapping import feature_values
-from ..db.models import BuildingFeatures, MlModel, Prediction, PredictionInput
+from ..db.mapping import features_from_sql
+from ..db.models import BuildingYear, MlModel, Prediction
 from ..db.registry import CATBOOST_NAME, KUMO_NAME, NoActiveModel
 from ..db.session import SessionDep
 from ..lib.tools import get_logger
@@ -72,7 +72,7 @@ def _api_request_id(request: Request) -> int:
     return api_request_id
 
 
-def _resolve(session: Session, payload: BuildingPredictionRequest) -> BuildingFeatures:
+def _resolve(session: Session, payload: BuildingPredictionRequest) -> BuildingYear:
     try:
         return ps.resolve_features(session, payload.building_id, payload.data_year)
     except ps.BuildingNotFound:
@@ -92,19 +92,17 @@ def _resolve(session: Session, payload: BuildingPredictionRequest) -> BuildingFe
 
 def _input_from_building(
     session: Session, request: Request, payload: BuildingPredictionRequest
-) -> PredictionInput:
+) -> ps.ModelInput:
     api_request_id = _api_request_id(request)
-    features = _resolve(session, payload)
-    return ps.create_input(
-        session,
-        features=feature_values(features),
-        source="building_id",
+    year = _resolve(session, payload)
+    return ps.ModelInput(
+        features=features_from_sql(year),
         api_request_id=api_request_id,
-        building_record_id=features.record_id,
+        building_year_id=year.id,
     )
 
 
-def _run(session: Session, inp: PredictionInput, model_name: str) -> Prediction:
+def _run(session: Session, inp: ps.ModelInput, model_name: str) -> Prediction:
     try:
         return ps.run_model(session, inp, model_name)
     except NoActiveModel:
@@ -148,12 +146,9 @@ def write_prediction(
 def write_prediction_from_features(
     payload: EnergyPredictionRequest, request: Request, session: SessionDep
 ):
-    api_request_id = _api_request_id(request)
-    inp = ps.create_input(
-        session,
+    inp = ps.ModelInput(
         features=ps.features_from_request(payload),
-        source="manual",
-        api_request_id=api_request_id,
+        api_request_id=_api_request_id(request),
     )
     return _response(_run(session, inp, CATBOOST_NAME), CATBOOST_NAME, request)
 
