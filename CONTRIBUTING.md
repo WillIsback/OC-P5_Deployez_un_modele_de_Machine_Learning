@@ -60,7 +60,7 @@ Format complet : `^(feat|fix|refactor|docs|chore|hotfix|release)/[a-z0-9._-]+$`
 - **Interdiction de push direct sur `main` (R4)** — toute modification passe par une PR.
 - Titre de PR en **Conventional Commits** : `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `perf:`, `ci:`, `build:`, `revert:`, avec `!` pour les breaking changes.
 - La PR doit référencer au moins une issue (`Closes #...`, `Related to #...` ou `Task: #...`).
-- 5 workflows CI s'exécutent sur chaque PR et doivent être verts avant le merge (seul `ci-model-performance` est déclaré check requis dans le ruleset « Protection de main ») :
+- 5 workflows CI s'exécutent sur chaque PR ; leurs jobs sont des checks **requis** par le ruleset « Protection de main » (liste exacte dans [`docs/ci-cd/README.md`](docs/ci-cd/README.md)) :
   - `ci-code-quality`
   - `ci-test`
   - `ci-security`
@@ -68,7 +68,7 @@ Format complet : `^(feat|fix|refactor|docs|chore|hotfix|release)/[a-z0-9._-]+$`
   - `ci-model-performance` (gate de non-régression du modèle : `models/scores.json` comparé à `models/scores_baseline.json`, voir `app/training/score_validation.py`)
 - En complément, une **revue de code IA non bloquante** est postée sur la PR par le workflow `ai-code-review` (déclenché après `ci-test`) via l'action [`WillIsback/code-review`](https://github.com/WillIsback/code-review).
 - Projet solo : la règle de revue est désactivée (`required_approving_review_count: 0`) — une PR peut être mergée par son auteur, sans bypass administrateur.
-- **Merge en squash uniquement (R6)** — l'historique de `main` est linéaire. C'est une convention : le ruleset « Protection de main » impose l'historique linéaire mais autorise aussi le rebase.
+- **Merge en squash uniquement (R6)** — imposé par le ruleset « Protection de main » ; l'historique de `main` est linéaire.
 
 ### 4. Après le merge
 

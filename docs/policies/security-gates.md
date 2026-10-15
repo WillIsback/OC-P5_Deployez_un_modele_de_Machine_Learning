@@ -7,11 +7,11 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 | Scan | Outil | Seuil d'échec du job |
 |------|-------|---------------|
 | **SCA** (Software Composition Analysis) | `dependency-review-action` + `trivy fs` | HIGH, CRITICAL |
-| **SAST** (Static Analysis) | `codeql` | Aucun : le job publie les alertes dans Code Scanning sans faire échouer la PR |
+| **SAST** (Static Analysis) | `codeql` | Nouvelles alertes `error` ou sécurité `high`/`critical`, via la règle `code_scanning` du ruleset (le job lui-même n'échoue pas) |
 | **Secret Leak** | `gitleaks` | Aucun : non bloquant actuellement (voir ci-dessous) |
 | **IaC / Dockerfile** | `trivy config` | HIGH, CRITICAL |
 
-> ⚠️ Aucun de ces jobs n'est un status check requis : le ruleset « Protection de main » n'exige que `ci-model-performance` et ne contient pas de règle `code_scanning`. Un échec s'affiche sur la PR (et dans le commentaire de synthèse) mais ne bloque pas techniquement le merge (voir #32).
+> Ces quatre jobs sont des status checks requis par le ruleset « Protection de main » : un job en échec bloque le merge. Les gates elles-mêmes restent permissives là où le tableau l'indique (CodeQL, Gitleaks) : un job vert ne garantit donc pas l'absence d'alerte.
 
 ## 📊 Analyse
 
@@ -29,7 +29,7 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 - **Langage** : Python (configurable)
 - **Requêtes** : `security-and-quality` (CodeQL)
-- **Mode** : les résultats sont envoyés à GitHub Code Scanning ; le job `sast` ne fait pas échouer la PR. Un blocage sur les nouvelles alertes nécessiterait une règle `code_scanning` dans le ruleset de `main`, qui n'existe pas actuellement
+- **Mode** : les résultats sont envoyés à GitHub Code Scanning ; le job `sast` ne fait pas échouer la PR. Le blocage est assuré par la règle `code_scanning` du ruleset de `main` : une PR qui introduit une alerte CodeQL de niveau `error`, ou une alerte de sécurité `high` ou `critical`, ne peut pas être mergée
 
 ### Secrets
 

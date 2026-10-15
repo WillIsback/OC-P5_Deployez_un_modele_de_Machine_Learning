@@ -21,10 +21,10 @@ graph TD
     BranchA --> PR["Pull Request (squash merge)"]
     BranchB --> PR
     PR -->|check requis| CI5[ci-model-performance]
-    PR --> CI1[ci-code-quality]
-    PR --> CI2[ci-test]
-    PR --> CI3[ci-security]
-    PR --> CI4[ci-traceability]
+    PR -->|check requis| CI1[ci-code-quality]
+    PR -->|check requis| CI2[ci-test]
+    PR -->|checks requis| CI3[ci-security]
+    PR -->|check requis| CI4[ci-traceability]
     CI2 -->|workflow_run| AI["Revue de code IA<br/>(ai-code-review · non bloquant)"]
     AI -.->|commentaire| PR
     PR -->|review| Merge["Merge dans main"]
@@ -57,7 +57,7 @@ graph TD
 
 > Tous les workflows CI sont déclenchés sur `pull_request` vers `main` (et `workflow_dispatch`), avec une concurrence par ref et `cancel-in-progress: true`.
 >
-> **Checks requis** : le ruleset « Protection de main » n'exige qu'**un seul** status check, `ci-model-performance`. Les autres workflows CI s'affichent en échec sur la PR mais ne bloquent pas techniquement le merge (voir #32).
+> **Checks requis** : le ruleset « Protection de main » exige `ci-code-quality`, `ci-test (3.11)`, `ci-test (3.12)`, `ci-traceability`, `ci-model-performance`, `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)` (émis par GitHub Actions) et `SonarCloud Code Analysis` (application SonarQube Cloud). Chaque contexte est lié à l'application qui l'émet (`integration_id`), ce qui empêche un autre acteur de le signaler. Le ruleset impose aussi le merge **squash** uniquement et une règle `code_scanning` CodeQL (alertes `errors` et sécurité `high_or_higher`). Renommer un job ou une entrée de matrice impose de mettre à jour le ruleset, sinon les PR restent bloquées en attente du check.
 
 **Précisions sur l'existant (non corrigé)** :
 
