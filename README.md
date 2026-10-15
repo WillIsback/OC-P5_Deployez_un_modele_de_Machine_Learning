@@ -1,19 +1,7 @@
 # P5 — Déployez un modèle de Machine Learning
 
 [![ci-install](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml/badge.svg?branch=main)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml)
-[![release](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/release.yml)
-[![ci-test](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-test.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-test.yml)
-[![ci-code-quality](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-code-quality.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-code-quality.yml)
-[![ci-security](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-security.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-security.yml)
-[![ci-model-performance](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-model-performance.yml/badge.svg?event=pull_request)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-model-performance.yml)
-
 [![Release](https://img.shields.io/github/v/release/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning?sort=semver)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/releases)
-[![Image Docker](https://img.shields.io/badge/ghcr.io-image-2496ED?logo=docker&logoColor=white)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/pkgs/container/oc-p5_deployez_un_modele_de_machine_learning)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
 [![Licence MIT](https://img.shields.io/github/license/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning)](LICENSE)
 
 **Auteur** : William Derue
@@ -38,64 +26,26 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 ---
 
-## 📦 Livrables
-
-### 1. Dépôt Git structuré
-
-- Code source complet
-- `pyproject.toml` / `uv.lock` (dépendances gérées par uv, pas de `requirements.txt`)
-- Historique de commits clair (branches, tags, Conventional Commits)
-- README complet
-
-### 2. API de machine learning
-
-- Développée avec **FastAPI**
-- Expose le modèle de ML via des endpoints REST
-- Documentation intégrée (Swagger / OpenAPI)
-- Endpoints, schémas de données, exemples d'appels
-
-### 3. Tests unitaires & fonctionnels
-
-- **Pytest** — couverture des cas critiques et scénarios d'erreur
-- Rapport de couverture (`pytest-cov`)
-- Tests d'intégration de l'API
-
-### 4. Base de données PostgreSQL
-
-- Script SQL / Python pour la création de la base et des tables
-- Modèle de données documenté
-- Exemples d'entrées (inputs / outputs du modèle ML)
-- Scripts d'interrogation et d'interaction avec le modèle
-
-### 5. Pipeline CI/CD
-
-- Configuration complète dans `.github/workflows/`
-- Configuration par variables d'environnement (`.env` en local, services Docker Compose `api` / `tools`) ; pas d'environnements GitHub dev/test/prod distincts
-- Intégration des secrets
-- Rulesets GitHub (branches + tags)
-
----
-
 ## 🏗️ Stack technique
 
-| Composant | Technologie |
-|-----------|-------------|
-| **Runtime** | Python 3.12+ |
-| **Framework API** | FastAPI |
-| **Gestionnaire de paquets** | [uv](https://github.com/astral-sh/uv) |
-| **Base de données** | PostgreSQL |
-| **Linter / Formateur** | ruff |
-| **Tests** | pytest + coverage |
-| **Container** | Docker |
-| **Scan de sécurité** | Trivy, CodeQL, Gitleaks |
-| **CI/CD** | GitHub Actions |
-| **Diagramme** | [D2](https://d2lang.com/) |
+| Domaine | Technologies |
+|---------|--------------|
+| **API** | Python 3.12+, [FastAPI](https://fastapi.tiangolo.com/) (Swagger / OpenAPI), Pydantic |
+| **Authentification** | JWT Bearer ([PyJWT](https://pyjwt.readthedocs.io/)), mots de passe hachés Argon2 ([pwdlib](https://github.com/frankie567/pwdlib)) |
+| **Modèle** | [CatBoost](https://catboost.ai/) multi-cible (énergie, émissions), scikit-learn, pandas ; comparaison zero-shot Kumo-Tabular ([structured-data-models](https://github.com/NVIDIA/structured-data-models), PyTorch CPU) |
+| **Suivi des expériences** | [MLflow](https://mlflow.org/) (métadonnées dans PostgreSQL) |
+| **Base de données** | PostgreSQL 17, SQLAlchemy 2, Alembic (migrations), psycopg 3 |
+| **Conteneurs** | Docker, Docker Compose, image publiée sur GHCR (modèle embarqué) |
+| **Qualité & tests** | [uv](https://github.com/astral-sh/uv), ruff, pytest + pytest-cov, diff-cover, SonarCloud |
+| **CI/CD** | GitHub Actions, release semver automatique, revue de code IA |
+| **Sécurité** | CodeQL, Trivy, Gitleaks, Dependency Review, hadolint, actionlint, zizmor |
+| **Documentation** | Markdown, diagrammes [D2](https://d2lang.com/) |
 
 ---
 
 ## 🚀 Quickstart
 
-Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle), téléchargés, lancent l'API avec le **modèle entraîné livré** (version `baseline`, aucun entraînement nécessaire), puis la vérifient : jeton, recherche de 3 bâtiments et prédiction sur leur identifiant. Ils sont rejoués **tels quels** sur une machine vierge par le workflow `ci-install` ([`scripts/quickstart_test.sh`](scripts/quickstart_test.sh)) : si un bloc casse, la CI échoue.
+Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle).
 
 **Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API) et `5432` (PostgreSQL) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 …`.
 
@@ -195,21 +145,51 @@ Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md
 
 ### Variables d'environnement
 
+Lues depuis `.env` (copié de [`.example.env`](.example.env), ou généré par le Quickstart utilisateurs). Seules celles marquées ⚠️ sont obligatoires.
+
+**Secrets et connexions**
+
 | Variable | Rôle | Défaut |
 |----------|------|--------|
-| `SECRET_KEY` | Signature des jetons JWT | aucun (obligatoire) |
-| `DATABASE_URL` | Connexion de l'API (rôle restreint `p5_api`) | aucun (obligatoire pour l'API) |
-| `DATABASE_OWNER_URL` / `DATABASE_ADMIN_URL` | Rôle propriétaire (ingestion, préparation, entraînement, migrations) / administrateur (`create_db`) | aucun |
-| `POSTGRES_PASSWORD`, `P5_OWNER_PASSWORD`, `P5_API_PASSWORD`, `P5_MLFLOW_PASSWORD` | Mots de passe des rôles, utilisés par Docker Compose et `create_db` | aucun |
-| `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT` | Suivi MLflow de l'entraînement | `sqlite:///mlflow.db` / `seattle-energy` |
-| `TRAINING_YEAR` | Année d'entraînement (référence de l'ingestion et de l'harmonisation) | `2016` |
-| `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration | `0` (Compose) |
-| `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS` | Modèles CatBoost servis | `models/energy.cbm` / `models/emissions.cbm` |
-| `MODEL_VERSION_PATH` / `MODEL_METRICS_PATH` | Version servie / table de scores de `GET /model/metrics` | `models/version.json` / `models/scores.json` |
-| `P5_IMAGE` | Image des services `api` et `tools` (Compose, hors override de développement) | `ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:latest` |
-| `API_PORT` / `DB_PORT` | Ports hôte des services `api` et `db` (Compose) | `8080` / `5432` |
-| `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./data`, `./models` et `./mlruns`) | `1000` / `1000` |
-| `TEST_DATABASE_ADMIN_URL` / `REQUIRE_TEST_DB` | Base des tests / `1` : échec au lieu de skip sans base | voir « Développement local » |
+| `SECRET_KEY` ⚠️ | Signature des jetons JWT | — |
+| `DATABASE_URL` | Connexion de l'API (rôle restreint `p5_api`) ; obligatoire hors Compose | — |
+| `DATABASE_OWNER_URL` | Rôle propriétaire : ingestion, entraînement, migrations | — |
+| `DATABASE_ADMIN_URL` | Rôle administrateur : `create_db` | — |
+| `POSTGRES_PASSWORD` ⚠️ | Mot de passe de `postgres` | — |
+| `P5_OWNER_PASSWORD` ⚠️ | Mot de passe de `p5_owner` | — |
+| `P5_API_PASSWORD` ⚠️ | Mot de passe de `p5_api` | — |
+| `P5_MLFLOW_PASSWORD` ⚠️ | Mot de passe de `p5_mlflow` | — |
+
+Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE_*` ne servent qu'en dehors de Compose (qui les construit lui-même).
+
+**Docker Compose**
+
+| Variable | Rôle | Défaut |
+|----------|------|--------|
+| `P5_IMAGE` | Image des services `api` et `tools` (ignorée depuis un clone) | `ghcr.io/…:latest` |
+| `API_PORT` | Port hôte de l'API | `8080` |
+| `DB_PORT` | Port hôte de PostgreSQL | `5432` |
+| `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./data`, `./models`, `./mlruns`) | `1000` / `1000` |
+| `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration (**jamais en production**) | `0` |
+
+**Modèle et entraînement**
+
+| Variable | Rôle | Défaut |
+|----------|------|--------|
+| `MODEL_PATH_ENERGY` | Modèle servi pour l'énergie | `models/energy.cbm` |
+| `MODEL_PATH_EMISSIONS` | Modèle servi pour les émissions | `models/emissions.cbm` |
+| `MODEL_VERSION_PATH` | Version servie | `models/version.json` |
+| `MODEL_METRICS_PATH` | Scores renvoyés par `GET /model/metrics` | `models/scores.json` |
+| `TRAINING_YEAR` | Année d'entraînement (référence de l'ingestion) | `2016` |
+| `MLFLOW_TRACKING_URI` | Suivi MLflow | `sqlite:///mlflow.db` |
+| `MLFLOW_EXPERIMENT` | Expérience MLflow | `seattle-energy` |
+
+**Tests**
+
+| Variable | Rôle | Défaut |
+|----------|------|--------|
+| `TEST_DATABASE_ADMIN_URL` | Serveur PostgreSQL des tests (base `p5_test` créée) | `postgres:$POSTGRES_PASSWORD@localhost:5432` |
+| `REQUIRE_TEST_DB` | `1` : les tests BDD échouent au lieu d'être ignorés sans base (CI) | non défini |
 
 ---
 
@@ -251,6 +231,46 @@ Les releases sont entièrement automatisées via le workflow `release.yml` :
 6. Sérialisation stricte : pas de releases en parallèle
 
 L'image applicative est construite sur l'image `:base` (dépendances précompilées) publiée par `base-image.yml` à chaque modification de `pyproject.toml`, `uv.lock` ou `Dockerfile.base` sur `main` : si cette image est obsolète, le smoke test bloque la release et il faut relancer `base-image` manuellement (`workflow_dispatch`).
+
+---
+
+## 📦 Livrables
+
+### 1. Dépôt Git structuré
+
+- Code source complet
+- `pyproject.toml` / `uv.lock` (dépendances gérées par uv, pas de `requirements.txt`)
+- Historique de commits clair (branches, tags, Conventional Commits)
+- README complet
+
+### 2. API de machine learning
+
+- Développée avec **FastAPI**
+- Expose le modèle de ML via des endpoints REST
+- Documentation intégrée (Swagger / OpenAPI)
+- Endpoints, schémas de données, exemples d'appels
+
+### 3. Tests unitaires & fonctionnels
+
+- **Pytest** — couverture des cas critiques et scénarios d'erreur
+- Rapport de couverture (`pytest-cov`)
+- Tests d'intégration de l'API
+
+### 4. Base de données PostgreSQL
+
+- Script SQL / Python pour la création de la base et des tables
+- Modèle de données documenté
+- Exemples d'entrées (inputs / outputs du modèle ML)
+- Scripts d'interrogation et d'interaction avec le modèle
+
+### 5. Pipeline CI/CD
+
+- Configuration complète dans `.github/workflows/`
+- Configuration par variables d'environnement (`.env` en local, services Docker Compose `api` / `tools`) ; pas d'environnements GitHub dev/test/prod distincts
+- Intégration des secrets
+- Rulesets GitHub (branches + tags)
+
+---
 
 ## 📄 Licence
 
