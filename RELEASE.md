@@ -6,7 +6,7 @@ Le workflow `release.yml` est déclenché automatiquement sur **push dans `main`
 Il peut aussi être déclenché manuellement via `workflow_dispatch` avec les paramètres :
 
 - `bump` : `auto` (défaut), `patch`, `minor`, `major`, `none`
-- `dry_run` : déclaré (défaut `true`) mais **lu par aucun job** — un `workflow_dispatch` qui calcule une version publie **réellement** (tag, release, image). Ne pas compter sur ce paramètre (voir issue #30).
+- `dry_run` : déclaré (défaut `true`) mais **lu par aucun job** — un `workflow_dispatch` qui calcule une version publie **réellement** (tag, release, image). Ne pas compter sur ce paramètre (voir #33).
 
 **Court-circuits** (le job `detect` renvoie `version=skipped` et tout le reste est ignoré) :
 
@@ -69,7 +69,7 @@ Les deux workflows démarrent **en parallèle** au merge, sans dépendance entre
 ## 🐳 Publication Docker
 
 - Registre : `ghcr.io/<owner>/<repo>` (en minuscules)
-- Tags poussés : `vX.Y.Z`, `vX.Y.Z.0` (superflu, signalé dans l'issue #30) et `latest` ; pas de tag `vX.Y`
+- Tags poussés : `vX.Y.Z`, `vX.Y.Z.0` (superflu, voir #37) et `latest` ; pas de tag `vX.Y`
 - Plateforme : celle du runner (`linux/amd64`) ; pas de build multi-arch
 - Attestations :
   - **SBOM** et provenance BuildKit : `sbom: true` et `provenance: mode=max` de `docker/build-push-action`, attachés à l'image

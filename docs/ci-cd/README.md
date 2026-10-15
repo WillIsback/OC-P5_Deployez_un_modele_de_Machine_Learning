@@ -57,16 +57,16 @@ graph TD
 
 > Tous les workflows CI sont déclenchés sur `pull_request` vers `main` (et `workflow_dispatch`), avec une concurrence par ref et `cancel-in-progress: true`.
 >
-> **Checks requis** : le ruleset « Protection de main » n'exige qu'**un seul** status check, `ci-model-performance`. Les autres workflows CI s'affichent en échec sur la PR mais ne bloquent pas techniquement le merge (voir issue #30).
+> **Checks requis** : le ruleset « Protection de main » n'exige qu'**un seul** status check, `ci-model-performance`. Les autres workflows CI s'affichent en échec sur la PR mais ne bloquent pas techniquement le merge (voir #32).
 
-**Précisions sur l'existant (non corrigé, voir issue #30)** :
+**Précisions sur l'existant (non corrigé)** :
 
 - **Titre de PR** : l'étape « commitlint » est une simple regex sur le titre de la PR : `^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert)(\(.+\))?!?: .+`. Le type `style` n'y figure pas.
-- **« zizmor »** : malgré son nom, l'étape exécute `ruff check --select S` (via `astral-sh/ruff-action`) sur `.github/workflows/` en `continue-on-error: true`. Elle n'est donc pas bloquante, et ce répertoire ne contient que des fichiers YAML que ruff n'analyse pas : zizmor n'est pas réellement exécuté.
+- **« zizmor »** : malgré son nom, l'étape exécute `ruff check --select S` (via `astral-sh/ruff-action`) sur `.github/workflows/` en `continue-on-error: true`. Elle n'est donc pas bloquante, et ce répertoire ne contient que des fichiers YAML que ruff n'analyse pas : zizmor n'est pas réellement exécuté (voir #35).
 - **Couverture incrémentale** : `diff-cover --fail-under=80 … || true` → le résultat est affiché mais n'échoue jamais.
 - **Dry-run release** (`ci-test`) : simulé — le script Python affiche un dernier tag codé en dur (`v0.0.1`) et ne lit ni les tags ni les commits. Seul le « dry-run applicatif » (import de `app.main`) teste réellement quelque chose.
 - **PostgreSQL** : `ci-test` démarre un service `postgres:17-alpine` et définit `REQUIRE_TEST_DB=1` : si la base est injoignable, les tests BDD échouent au lieu d'être ignorés.
-- **Matrice Python** : `ci-test` tourne sur 3.11 et 3.12, alors que `pyproject.toml` impose `requires-python = ">=3.12"` ; l'entrée 3.11 est incohérente avec le projet.
+- **Matrice Python** : `ci-test` tourne sur 3.11 et 3.12, alors que `pyproject.toml` impose `requires-python = ">=3.12"` ; l'entrée 3.11 est incohérente avec le projet (voir #38).
 
 ### IA — Revue de code & triage (non bloquant)
 

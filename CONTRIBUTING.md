@@ -140,7 +140,7 @@ Un simple `docker run -p 8080:8080 <image>` ne donne pas une API utilisable : il
 - Les workflows CI sont analysés par `actionlint`. L'étape « Analyse de sécurité des workflows (zizmor) » de `ci-code-quality` n'exécute pas zizmor mais `ruff check --select S` sur `.github/workflows/`, en `continue-on-error` : ruff ne trouvant aucun fichier Python dans ce dossier, elle n'analyse rien.
 - Les dépendances sont scannées par `trivy` et `dependency-review-action`.
 - Les secrets sont détectés par `gitleaks`.
-- Les exceptions de sécurité sont recensées dans `.github/security-exceptions.yml` (datées, avec expiration). Ce registre est documentaire : aucun workflow ne le lit (voir issue #30).
+- Les exceptions de sécurité sont recensées dans `.github/security-exceptions.yml` (datées, avec expiration). Ce registre est documentaire : aucun workflow ne le lit (voir #36).
 
 ---
 

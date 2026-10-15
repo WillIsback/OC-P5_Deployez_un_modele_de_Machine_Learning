@@ -11,7 +11,7 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 | **Secret Leak** | `gitleaks` | Aucun : non bloquant actuellement (voir ci-dessous) |
 | **IaC / Dockerfile** | `trivy config` | HIGH, CRITICAL |
 
-> ⚠️ Aucun de ces jobs n'est un status check requis : le ruleset « Protection de main » n'exige que `ci-model-performance` et ne contient pas de règle `code_scanning`. Un échec s'affiche sur la PR (et dans le commentaire de synthèse) mais ne bloque pas techniquement le merge (voir issue #30).
+> ⚠️ Aucun de ces jobs n'est un status check requis : le ruleset « Protection de main » n'exige que `ci-model-performance` et ne contient pas de règle `code_scanning`. Un échec s'affiche sur la PR (et dans le commentaire de synthèse) mais ne bloque pas techniquement le merge (voir #32).
 
 ## 📊 Analyse
 
@@ -34,7 +34,7 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 ### Secrets
 
 - **Scan** : `gitleaks detect --no-git` → analyse de l'**arbre de travail** du checkout (pas de l'historique ni du range de commits de la PR), avec la configuration `.gitleaks.toml`
-- **Non bloquant** : la commande est lancée avec `--exit-code 1 || EXIT_CODE=$?` ; une fuite est signalée dans les logs et le SARIF est uploadé, mais le job reste vert (voir issue #30)
+- **Non bloquant** : la commande est lancée avec `--exit-code 1 || EXIT_CODE=$?` ; une fuite est signalée dans les logs et le SARIF est uploadé, mais le job reste vert (voir #34)
 - **Fichiers d'exclusion** : une étape informative liste les motifs sensibles (`.env`, `*.key`, `*.pem`, `credentials`, `secrets`, `token`) couverts par `.gitignore` et `.dockerignore`. Elle n'échoue jamais ; `.dockerignore` n'existe pas dans le dépôt (l'étape affiche « absent »)
 - **Protection complémentaire** : le *push protection* du secret scanning GitHub est activé au niveau du dépôt (paramètres de sécurité, pas un ruleset)
 
@@ -48,7 +48,7 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 Les exceptions de sécurité sont **documentées** dans `.github/security-exceptions.yml`.
 
-> ⚠️ Ce fichier n'est lu par **aucun** workflow : il n'a aucun effet sur les scans. Les règles ci-dessous sont une convention de revue, pas un contrôle automatisé. Les deux exceptions présentes (`S8541`, omission de `uv --no-build`) ont expiré le 2026-04-10 sans conséquence sur la CI (voir issue #30).
+> ⚠️ Ce fichier n'est lu par **aucun** workflow : il n'a aucun effet sur les scans. Les règles ci-dessous sont une convention de revue, pas un contrôle automatisé. Les deux exceptions présentes (`S8541`, omission de `uv --no-build`) ont expiré le 2026-04-10 sans conséquence sur la CI (voir #36).
 
 **Règles (convention) :**
 1. Chaque exception DOIT avoir une date d'expiration (`expires: YYYY-MM-DD`)
