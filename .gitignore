@@ -168,6 +168,8 @@ package-lock.json
 models/*
 !models/scores.json
 !models/scores_baseline.json
+!models/energy.cbm
+!models/emissions.cbm
 catboost_info/
 mlflow.db
 mlruns/
