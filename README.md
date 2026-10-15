@@ -89,25 +89,25 @@ cd OC-P5_Deployez_un_modele_de_Machine_Learning
 
 # Configuration de démonstration (comptes johndoe/alice) : changer les mots de passe et SECRET_KEY hors démo
 cp .example.env .env
-printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >> .env   # le service tools écrit dans ./models avec votre uid
-mkdir -p models mlruns
 
 # Données : CSV 2016 téléchargé depuis l'hôte (data/ est monté en lecture seule dans le service tools)
 uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
 
-# Base, ingestion (features et split inclus), entraînement (models/*.cbm), puis API sur http://localhost:8080
+# Base et ingestion (features et split inclus), puis API sur http://localhost:8080 avec le modèle livré
 docker compose --profile tools build --pull   # images api + tools sur la dernière base :base (GHCR)
 docker compose up -d --wait db
 docker compose run --rm tools python -m app.db.create_db
 docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-docker compose run --rm tools python -m app.training
 docker compose up -d --wait api
 
-# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment
+# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment (saisie libre)
 API=http://localhost:${API_PORT:-8080}
 TOKEN=$(curl -fsS -X POST $API/token -d "username=johndoe&password=secret" | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
-curl -fsS -X POST $API/model/predict -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"building_id": 1}'
+curl -fsS -X POST $API/model/predict/features -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"BuildingType":"NonResidential","PrimaryPropertyType":"Small- and Mid-Sized Office","Neighborhood":"BALLARD","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail Store","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
 ```
+
+**Le modèle entraîné est livré** dans `models/` (`energy.cbm`, `emissions.cbm`, scores dans `models/scores.json`) et enregistré comme version `baseline` par `create_db` : aucun entraînement n'est nécessaire pour servir l'API. Pour réentraîner, voir [`docs/training/README.md`](docs/training/README.md).
 
 Documentation interactive : http://localhost:8080/docs. Arrêt : `docker compose down` (ajouter `-v` pour effacer la base).
 
@@ -120,7 +120,7 @@ Documentation interactive : http://localhost:8080/docs. Arrêt : `docker compose
 uv sync
 
 # Lancer l'application en mode développement (http://localhost:8000) : nécessite
-# la base provisionnée et les modèles entraînés par le Quickstart
+# la base provisionnée par le Quickstart (modèles livrés dans models/)
 uv run fastapi dev app/main.py
 
 # Exécuter les tests (les tests PostgreSQL sont ignorés si aucune base n'est joignable)
@@ -144,7 +144,7 @@ Les tests de base de données créent une base `p5_test` via l'URL administrateu
 
 L'API s'appuie sur **PostgreSQL** : dataset structuré (identité des bâtiments, features par année, cibles réelles), traçabilité de chaque appel API par utilisateur, prédictions versionnées et authentification via la table `users`. Schéma UML, choix techniques, rôles et requêtes d'exemple : voir [`docs/db/README.md`](docs/db/README.md) (DDL : [`docs/db/schema.sql`](docs/db/schema.sql)).
 
-La base est provisionnée et alimentée par le [Quickstart](#-quickstart) (`create_db`, `ingest` — nettoyage, features et split inclus — puis `app.training`).
+La base est provisionnée et alimentée par le [Quickstart](#-quickstart) (`create_db` puis `ingest` — nettoyage, features et split inclus).
 
 Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. Seul `johndoe` est actif : `alice` est créée **inactive** et `POST /token` lui répond 400 (elle sert à tester le refus d'un compte désactivé). **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
 
@@ -340,47 +340,7 @@ Source : `EPAPropertyType` `Office` ; `PropertyGFATotal` (au moins les 221 508 s
 
 Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` (chemins surchargeables par `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS`).
 
-**Entraînement réel (pipeline multi-cible + MLflow)** :
-
-```bash
-# 1. Ingérer l'année d'entraînement (nettoyage, features et split inclus)
-#    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent,
-#    mais uniquement en local avec `uv run` : dans le service tools, ./data est monté en lecture seule)
-uv run python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv [--download]
-
-# 2. Entraîner depuis la base (rôle propriétaire : DATABASE_OWNER_URL)
-uv run python -m app.training
-```
-
-L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_years`, `buildings.split` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
-`TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
-logue les runs MLflow (`uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"`). Sorties : `models/<cible>.cbm`,
-`models/scores.json` et `models/version.json` (version servie, lue par l'API).
-
-### Suivi d'expérimentation avec MLflow
-
-L'entraînement (`app.training`) journalise automatiquement chaque run dans **MLflow** :
-- **Run parent `p5-multitarget`** : paramètres `test_size`, `seed`, `cv_splits` ; artefacts `scores.json` / `scores.csv`.
-- **Run imbriqué par cible `catboost-<cible>`** : meilleurs hyper-paramètres, scores CV sur l'entraînement (`cv_train_*`, `cv_train_std_*`, `cv_fold*_*`), évaluation sur le test (`test_R2`, `test_MAE`, `test_MedAE`, `test_MedAPE_pct`) et artefact du modèle `.cbm`.
-- **Run imbriqué par cible `kumo-<cible>`** : évaluation Kumo-Tabular en zero-shot (`test_*`).
-
-Configurable par variables d'environnement :
-```bash
-export MLFLOW_TRACKING_URI="postgresql+psycopg://p5_mlflow:<mdp>@localhost:5432/mlflow"   # voir .example.env
-export MLFLOW_EXPERIMENT="seattle-energy"           # défaut
-uv run python -m app.training
-```
-Puis visualiser (les runs sont dans PostgreSQL, pas dans `./mlruns` : préciser la base) :
-```bash
-uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"
-```
-
-### Tests unitaires du training
-
-```bash
-uv run pytest tests/test_training.py -q        # pipeline, CV, tune, MLflow
-uv run pytest --cov=app tests/                 # ensemble des tests
-```
+Réentraîner le modèle (pipeline multi-cible CatBoost + Kumo, suivi MLflow, tests) : voir [`docs/training/README.md`](docs/training/README.md).
 
 ---
 
@@ -405,6 +365,7 @@ uv run pytest --cov=app tests/                 # ensemble des tests
 app/                              # Code source (API FastAPI, base, entraînement)
 docs/
 ├── ci-cd/README.md               # Documentation du pipeline CI/CD
+├── training/README.md            # Réentraînement du modèle, MLflow
 ├── db/
 │   ├── README.md                 # Base PostgreSQL : schéma, choix, rôles, requêtes
 │   └── schema.sql                # DDL généré par Alembic
@@ -414,7 +375,7 @@ docs/
 └── policies/
     ├── semver.md                 # Politique de versionnement sémantique
     └── security-gates.md         # Politique des gates de sécurité
-models/                           # Modèles entraînés (*.cbm non versionnés ; scores.json et scores_baseline.json versionnés)
+models/                           # Modèle entraîné livré (energy.cbm, emissions.cbm, scores.json) + scores_baseline.json
 tests/                            # Tests pytest (unitaires, API, base PostgreSQL)
 .example.env                      # Modèle de configuration à copier en .env
 alembic.ini                       # Configuration des migrations (app/db/migrations)
@@ -434,6 +395,7 @@ RELEASE.md                        # Runbook de release
 |----------|-------------|
 | [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows CI/IA/CD, sécurité du pipeline |
 | [Base de données](docs/db/README.md) | Schéma UML, choix techniques, rôles, mise en route, requêtes SQL |
+| [Entraînement](docs/training/README.md) | Réentraînement CatBoost multi-cible, Kumo, suivi MLflow, tests |
 | [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
 | [Runbook Release](RELEASE.md) | Semver, gates CD, rollback, incidents |
 | [Politique semver](docs/policies/semver.md) | Règle du max, comportement v0.x |
