@@ -6,10 +6,10 @@ from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
-from synth import EXAMPLE_FEATURES, add_record
+from synth import add_year
 
-from app.db import create_db, mapping
-from app.db.models import Base, BuildingFeatures, MlModel, PredictionInput, User
+from app.db import create_db
+from app.db.models import Base, Building, MlModel, Prediction, User
 from app.db.registry import CATBOOST_NAME, active_model, register_model
 
 pytestmark = pytest.mark.db
@@ -30,6 +30,7 @@ def test_view_exists(owner_engine):
         "model_version",
         "data_year",
         "building_id",
+        "exclusion_reason",
         "predicted_energy_kbtu",
         "actual_energy_kbtu",
         "predicted_ghg_tco2e",
@@ -103,52 +104,47 @@ def test_provision_is_idempotent(provisioned_db):
     engine.dispose()
 
 
-def _features(**overrides):
-    return BuildingFeatures(
-        **mapping.features_to_sql(EXAMPLE_FEATURES), prep_version="t", **overrides
-    )
-
-
-def test_split_requires_eligibility(db):
+def test_split_values_checked(db):
     with db() as s:
-        rec = add_record(s, 1, 2016)
+        s.add(Building(id=1, split="invalid"))
+        with pytest.raises(IntegrityError):
+            s.commit()
+
+
+def test_exclusion_reason_values_checked(db):
+    with db() as s, pytest.raises(IntegrityError):
+        add_year(s, 1, 2016, exclusion_reason="mauvaise-raison")
+
+
+def test_prediction_requires_an_origin(db):
+    with db() as s:
+        model = active_model(s, CATBOOST_NAME)
         s.add(
-            _features(
-                record_id=rec.id,
-                dataset_role="training",
-                is_training_eligible=False,
-                exclusion_reason="outlier",
-                split="train",
+            Prediction(
+                model_id=model.id,
+                input_features={},
+                energy_use_kbtu=1.0,
+                ghg_emissions_tco2e=1.0,
             )
         )
         with pytest.raises(IntegrityError):
             s.commit()
 
 
-def test_production_rows_cannot_be_eligible(db):
+def test_batch_prediction_unique_per_year_and_model(db):
     with db() as s:
-        rec = add_record(s, 1, 2018)
-        s.add(
-            _features(
-                record_id=rec.id,
-                dataset_role="production",
-                is_training_eligible=True,
-                split="train",
+        year = add_year(s, 1, 2018)
+        model = active_model(s, CATBOOST_NAME)
+        for _ in range(2):
+            s.add(
+                Prediction(
+                    building_year_id=year.id,
+                    model_id=model.id,
+                    input_features={},
+                    energy_use_kbtu=1.0,
+                    ghg_emissions_tco2e=1.0,
+                )
             )
-        )
-        with pytest.raises(IntegrityError):
-            s.commit()
-
-
-def test_batch_input_requires_record(db):
-    with db() as s:
-        s.add(
-            PredictionInput(
-                input_source="batch",
-                building_record_id=None,
-                **mapping.features_to_sql(EXAMPLE_FEATURES),
-            )
-        )
         with pytest.raises(IntegrityError):
             s.commit()
 
@@ -180,18 +176,13 @@ def test_register_model_switches_active_version(db):
         )
 
 
-def test_api_role_cannot_read_pii_or_actuals(provisioned_db):
+def test_api_role_reads_dataset_but_not_actuals(provisioned_db):
     engine = create_engine(provisioned_db["api_url"])
     try:
         with engine.connect() as conn:
-            conn.execute(
-                text("SELECT id, building_id, data_year FROM building_records_raw")
-            )
-        for forbidden in (
-            "SELECT address FROM building_records_raw",
-            "SELECT * FROM building_actuals",
-        ):
-            with engine.connect() as conn, pytest.raises(ProgrammingError):
-                conn.execute(text(forbidden))
+            conn.execute(text("SELECT id, property_name, split FROM buildings LIMIT 0"))
+            conn.execute(text("SELECT id, data_year FROM building_years LIMIT 0"))
+        with engine.connect() as conn, pytest.raises(ProgrammingError):
+            conn.execute(text("SELECT * FROM building_actuals"))
     finally:
         engine.dispose()

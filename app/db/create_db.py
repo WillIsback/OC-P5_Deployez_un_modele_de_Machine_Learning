@@ -33,10 +33,9 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 # Droits du rôle API (spec §5.2) ; {api} est remplacé par l'identifiant du rôle.
 API_GRANTS = (
     "GRANT USAGE ON SCHEMA public TO {api}",
-    "GRANT SELECT ON users, buildings, building_features, ml_models TO {api}",
-    "GRANT SELECT (id, building_id, data_year) ON building_records_raw TO {api}",
+    "GRANT SELECT ON users, buildings, building_years, ml_models TO {api}",
     "GRANT SELECT, INSERT, UPDATE ON api_requests TO {api}",
-    "GRANT SELECT, INSERT ON prediction_inputs, predictions TO {api}",
+    "GRANT SELECT, INSERT ON predictions TO {api}",
     "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO {api}",
 )
 
