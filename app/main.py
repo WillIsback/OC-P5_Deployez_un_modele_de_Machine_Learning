@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .middleware.trace import DB_UNAVAILABLE_ERRORS, TraceMiddleware
-from .routers import auth, model
+from .routers import auth, buildings, model
 
 app = FastAPI()
 app.add_middleware(TraceMiddleware)
@@ -19,4 +19,5 @@ for _error in DB_UNAVAILABLE_ERRORS:
 
 
 app.include_router(auth.router)
+app.include_router(buildings.router)
 app.include_router(model.router)

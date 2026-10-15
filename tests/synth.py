@@ -91,12 +91,12 @@ EXAMPLE_FEATURES = {
 
 
 def add_building(
-    session: Session, building_id: int, split: str | None = None
+    session: Session, building_id: int, split: str | None = None, **identity
 ) -> Building:
     """Crée (si besoin) un bâtiment sans année : hors périmètre du modèle."""
     building = session.get(Building, building_id)
     if building is None:
-        building = Building(id=building_id, split=split)
+        building = Building(id=building_id, split=split, **identity)
         session.add(building)
         session.flush()
     return building
