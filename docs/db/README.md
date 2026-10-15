@@ -98,11 +98,11 @@ Le diagramme omet les colonnes de données de `building_records_raw` (miroir typ
 
 **D3 — Format du brut.** `building_records_raw` contient des colonnes typées, miroir du CSV (snake_case), PII conservées. La PII n'est lisible que par le propriétaire.
 
-**D4 — Modes de prédiction.** Deux modes coexistent : par `building_id` (`POST /model/predict`, lecture des features préparées) et en saisie libre (`POST /model/predict/features`, `input_source = 'manual'`).
+**D4 — Modes de prédiction.** Trois valeurs de `input_source` sont tracées dans `prediction_inputs` : `building_id` (`POST /model/predict`, lecture des features préparées, et `POST /model/predict/compare`, qui rattache au même `prediction_inputs` une prédiction CatBoost et une prédiction Kumo), `manual` (saisie libre, `POST /model/predict/features`, sans `building_record_id`) et `batch` (évaluation projetée `app.db.evaluate`, hors API, sans `api_request_id`).
 
 **D5 — Périmètre.** Le résidentiel (`Multifamily*`) est stocké en brut mais absent de `building_features` ; une prédiction sur un tel bâtiment renvoie 422.
 
-**D6 — Éligibilité.** Les filtres qualité (outliers, conformité, cibles non positives ou manquantes) ne concernent que l'entraînement (année 2016, variable `TRAINING_YEAR`). Les années de production ne sont pas filtrées.
+**D6 — Éligibilité.** Les filtres qualité (outliers, conformité, cibles non positives ou manquantes) ne concernent que l'entraînement (année 2016, variable `TRAINING_YEAR`). La préparation (`app/db/prepare.py`) ne filtre pas les années de production (`exclusion_reason` NULL, `is_training_eligible` faux) : toutes restent prédictibles par l'API. En revanche, depuis la v1.1.0, l'évaluation projetée exclut de ses métriques les bâtiments non conformes ou aux intensités aberrantes (`exclusion_reason` dans `app/db/evaluate.py`, voir « Filtrage de l'évaluation projetée » au §4).
 
 **D7 — Cibles réelles.** Les cibles vivent dans `building_actuals`, table séparée ; `building_features` ne contient aucune cible, ce qui exclut toute fuite vers l'API. Le rôle `p5_api` n'y a pas accès.
 
@@ -151,6 +151,12 @@ Prérequis : Docker, et un fichier `.env` créé à partir de l'exemple (`cp .ex
 
 **Comptes de démonstration.** `create_db` ne crée `johndoe` (actif) et `alice` (inactive), mot de passe `secret`, que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec l'option `--demo-users`. Les modèles initiaux de `ml_models` sont créés dans tous les cas. **En production, laisser `P5_SEED_DEMO_USERS` à 0 ou absent** : un compte au mot de passe public donnerait accès à toute l'API.
 
+**Données sources.** `data/` est ignoré par git et monté **en lecture seule** dans le service `tools` (`./data:/app/data:ro`) : l'option `--download` d'`app.db.ingest` ne peut donc pas écrire le CSV depuis le conteneur. Sur un clone neuf, télécharger le CSV 2016 depuis l'hôte (`uv sync` au préalable) :
+
+```bash
+uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
+```
+
 ```bash
 mkdir -p models mlruns
 docker compose --profile tools build
@@ -170,7 +176,12 @@ docker compose exec -T db psql -U postgres -d p5 -c "SELECT path, status_code, u
 
 Les fichiers `models/*.cbm` sont ignorés par git : sur un clone neuf, ils n'existent qu'après l'étape `app.training` (environ une minute avec `--no-kumo --cv-splits 2`, plus longtemps avec les réglages par défaut). La réponse contient `prediction_id` et `request_id`. La table `api_requests` contient une ligne par appel, dont `/model/predict` avec le `user_id` renseigné et `/token` avec le mot de passe masqué. Le port hôte de l'API se change avec `API_PORT` (par défaut `8080`).
 
-**Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`. **Avant le merge**, republier `:base` en lançant manuellement le workflow `base-image.yml` (`workflow_dispatch`) ; le workflow `release.yml` exécute un smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) qui fait échouer la release plutôt que de publier une image cassée.
+**Image de base obsolète.** Les dépendances (`psycopg`, `sqlalchemy`, `alembic`…) viennent de l'image de base `:base` publiée sur GHCR. Si elle est antérieure à ces dépendances, `docker compose build` **réussit** quand même (l'image applicative ne fait que copier `app/`) : c'est l'exécution qui échoue (`ModuleNotFoundError: psycopg` au démarrage de `api` ou de `tools`). Pour travailler en local, construire la base : `docker build -f Dockerfile.base -t p5-base .` puis `docker compose --profile tools build --build-arg BASE_IMAGE=p5-base`.
+
+Côté CI, `base-image.yml` se déclenche sur un push dans `main` qui modifie `pyproject.toml`, `uv.lock` ou `Dockerfile.base`, mais `release.yml` part **en parallèle** sur le même push, sans l'attendre : la release peut donc être construite sur l'ancienne `:base`. Le workflow `release.yml` exécute un smoke test (`python -c "import psycopg, sqlalchemy, alembic, app.main"`) qui fait échouer la release plutôt que de publier une image cassée. Deux façons de s'en prémunir :
+
+- **après le merge** (recommandé) : si le smoke test échoue sur `ModuleNotFoundError`, attendre la fin du run `base-image`, puis relancer la release (`gh run rerun <id>`) ;
+- **avant le merge** : lancer `base-image.yml` manuellement (`workflow_dispatch`) en choisissant la branche de la PR (`gh workflow run base-image.yml --ref <branche>`). Attention : le workflow pousse **toujours** le tag `:base`, il n'existe pas de tag par branche. Cette base remplace donc celle de `main` pour tous les builds jusqu'au prochain run sur `main` ; ne le faire que si la PR va être mergée.
 
 ### Entraînement, évaluation et DDL
 
@@ -198,12 +209,13 @@ docker compose run --rm -e MLFLOW_EXPERIMENT=seattle-energy-docker tools python 
 
 ### Années de production 2017–2019
 
-Les années 2017, 2018 et 2019 proviennent de l'open data de Seattle ([Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e/about_data)). `data/` n'est pas versionné : `--download` récupère l'export complet et n'en garde que l'année demandée.
+Les années 2017, 2018 et 2019 proviennent de l'open data de Seattle ([Building Energy Benchmarking Data, 2015-Present](https://data.seattle.gov/Built-Environment/Building-Energy-Benchmarking-Data-2015-Present/teqw-tu6e/about_data)). `data/` n'est pas versionné et il est monté en lecture seule dans `tools` : télécharger les CSV depuis l'hôte (`download_open_data_year` récupère l'export complet et n'en garde que l'année demandée ; un fichier déjà présent n'est pas retéléchargé), puis ingérer dans le conteneur sans `--download`.
 
 ```bash
+uv run python -c "from app.db.harmonize import download_open_data_year as d; [d(y, f'data/{y}_Building_Energy_Benchmarking.csv') for y in (2017, 2018, 2019)]"
 for y in 2017 2018 2019; do
   docker compose run --rm tools python -m app.db.ingest --year $y \
-    --csv data/${y}_Building_Energy_Benchmarking.csv --download
+    --csv data/${y}_Building_Energy_Benchmarking.csv
 done
 docker compose run --rm tools python -m app.db.prepare --year 2017 2018 2019
 docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
@@ -247,10 +259,22 @@ JOIN building_records_raw r ON r.id = i.building_record_id
 JOIN ml_models m ON m.id = p.model_id
 WHERE r.building_id = 1 ORDER BY p.predicted_at DESC;
 
--- Erreur médiane relative par année (évaluation projetée)
-SELECT data_year, model_version,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS medape_energy
-FROM v_projected_evaluation GROUP BY data_year, model_version ORDER BY data_year;
+-- Erreur médiane relative par année (évaluation projetée). La vue n'applique
+-- aucun filtre : la jointure et les conditions reproduisent exclusion_reason
+-- (app/db/evaluate.py : conformité, EUI entre 1 et 1 000 kBtu/sf, émissions
+-- <= 0,05 t CO2e/sf) et redonnent la MedAPE énergie du tableau du §4 et le n
+-- affiché par app.db.evaluate (1 400, 1 393 et 1 454 bâtiments de 2017 à 2019).
+SELECT e.data_year, e.model_version, count(*) AS n,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY e.rel_err_energy) AS medape_energy
+FROM v_projected_evaluation e
+JOIN building_records_raw r
+  ON r.building_id = e.building_id AND r.data_year = e.data_year
+WHERE r.compliance_status = 'Compliant'
+  AND (e.actual_energy_kbtu / NULLIF(r.property_gfa_total, 0)
+       BETWEEN 1 AND 1000) IS NOT FALSE
+  AND (e.actual_ghg_tco2e / NULLIF(r.property_gfa_total, 0) <= 0.05) IS NOT FALSE
+  AND e.actual_energy_kbtu > 0
+GROUP BY e.data_year, e.model_version ORDER BY e.data_year;
 
 -- Répartition du jeu d'entraînement
 SELECT split, exclusion_reason, count(*) FROM building_features
