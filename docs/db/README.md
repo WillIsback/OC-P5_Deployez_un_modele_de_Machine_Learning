@@ -220,7 +220,15 @@ docker compose run --rm tools python -m app.db.evaluate --years 2017 2018 2019
 
 Les colonnes propres à l'open data (`ComplianceIssue`, `Demolished`, `SelfReport*`) sont ignorées. Restent des différences de **contenu** que l'harmonisation ne corrige pas : Seattle a révisé ses données (usages secondaires renseignés là où le CSV 2016 était vide, émissions recalculées à ±1 %), et quelques libellés nouveaux (`Electric Vehicle Charging Station`, `Transportation Terminal/Station`…) sont inconnus du modèle, que CatBoost traite comme une modalité non vue. La préparation (`app.db.prepare`) est ensuite strictement celle de l'entraînement.
 
-**Données aberrantes de la source.** L'évaluation projetée ne filtre que les cibles non positives. Certaines déclarations sont manifestement erronées tout en étant marquées `Compliant` (ex. bâtiment 755 en 2019 : 5,9 × 10⁹ kBtu, 278 fois sa consommation 2018), ce qui suffit à écraser le R² d'une année ; la MedAPE, robuste, reste comparable au jeu de test 2016.
+**Filtrage de l'évaluation projetée** (`exclusion_reason` dans `app/db/evaluate.py`). Comme pour l'entraînement, les bâtiments non conformes (`ComplianceStatus` ≠ `Compliant`) sont exclus. Le flag `Outlier` de 2016 n'existe plus dans l'open data ; il est remplacé par des plages d'intensité plausibles, arrondies depuis les bâtiments éligibles de 2016 : EUI réelle (`SiteEnergyUse` / `PropertyGFATotal`) entre 1 et 1 000 kBtu/sf, émissions ≤ 0,05 t CO2e/sf. Certaines déclarations sont en effet erronées tout en étant marquées `Compliant` (bâtiment 755 en 2019 : 5,9 × 10⁹ kBtu, 278 fois sa consommation 2018) et suffisaient à écraser le R² d'une année. Le nombre de bâtiments exclus est affiché (`n_excluded`).
+
+| Année | Exclus | R² énergie | MedAPE énergie | R² émissions | MedAPE émissions |
+|---|---|---|---|---|---|
+| 2017 | 137 | 0,51 | 32,5 % | 0,44 | 43,6 % |
+| 2018 | 170 | 0,42 | 32,8 % | 0,51 | 46,1 % |
+| 2019 | 124 | 0,31 | 33,5 % | 0,31 | 45,0 % |
+
+(modèle `catboost-multitarget v20261015090207` ; jeu de test 2016 : MedAPE 36,2 % / 46,4 %.)
 
 L'ingestion est idempotente (upsert sur `(building_id, data_year)`) ; les doublons d'`OSEBuildingID` sont dédupliqués (dernier gardé) avec un avertissement.
 
