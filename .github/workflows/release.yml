@@ -264,6 +264,17 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
+      # Le build réussit même si l'image de base GHCR est obsolète (dépendances
+      # manquantes) : seul l'import échoue. On bloque la release AVANT tout push
+      # (le job publish dépend de ce job).
+      - name: Smoke test des dépendances de l'image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }} \
+            python -c "import psycopg, sqlalchemy, alembic, app.main; print('OK : dépendances et app importables')" \
+            || { echo "❌ Image cassée : republier :base via le workflow base-image (workflow_dispatch)."; exit 1; }
+
       - name: Scan de l'image avec Trivy
         id: scan
         shell: bash

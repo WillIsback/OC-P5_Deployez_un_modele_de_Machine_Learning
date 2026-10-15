@@ -10,7 +10,11 @@ COPY --chown=appuser:appuser app/ ./app/
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/')" || exit 1
+    CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/docs')" || exit 1
+
+# Le venv de l'image de base est placé dans le PATH : `python -m app.db…` fonctionne
+# directement dans les conteneurs (service `tools` du compose).
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Switch to non-root user
 USER appuser

@@ -1,11 +1,18 @@
-from datetime import UTC, datetime
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends, HTTPException
-from starlette.concurrency import run_in_threadpool
-
-from ..core import kumo_service, metrics_service, model_service
+from ..core import metrics_service
+from ..core import prediction_service as ps
 from ..core.security import get_current_user
+from ..db.mapping import feature_values
+from ..db.models import BuildingFeatures, MlModel, Prediction, PredictionInput
+from ..db.registry import CATBOOST_NAME, KUMO_NAME, NoActiveModel
+from ..db.session import SessionDep
+from ..lib.tools import get_logger
 from ..schemas.api import (
+    BuildingPredictionRequest,
     ComparisonPredictionResponse,
     EnergyPredictionRequest,
     EnergyPredictionResponse,
@@ -13,39 +20,42 @@ from ..schemas.api import (
     Model,
 )
 
+log = get_logger(__name__)
+
 router = APIRouter(
     prefix="/model",
     tags=["model"],
     dependencies=[Depends(get_current_user)],
-    responses={404: {"description": "Not found"}},
+    responses={404: {"description": "Introuvable"}},
 )
 
-available_models = [
-    Model(
-        id=1,
-        name="catboost-energy-seattle",
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-    ),
-    Model(
-        id=2,
-        name="catboost-emissions-seattle",
-        created_at=datetime(2026, 1, 2, tzinfo=UTC),
-    ),
-    Model(
-        id=3, name="kumo-tabular-zero-shot", created_at=datetime(2026, 1, 3, tzinfo=UTC)
-    ),
-]
+UNAVAILABLE = {503: {"description": "Modèle, traçabilité ou base indisponible"}}
+BUILDING_RESPONSES = {
+    404: {"description": "Bâtiment ou année introuvable"},
+    422: {"description": "Bâtiment hors périmètre du modèle"},
+    **UNAVAILABLE,
+}
 
 
 @router.get("/list", response_model=list[Model])
-async def read_models_list():
-    return available_models
+def read_models_list(session: SessionDep):
+    models = session.scalars(select(MlModel).order_by(MlModel.id))
+    return [
+        Model(
+            id=m.id,
+            name=m.name,
+            version=m.version,
+            is_active=m.is_active,
+            created_at=m.created_at,
+        )
+        for m in models
+    ]
 
 
 @router.get(
     "/metrics",
     response_model=MetricsResponse,
-    responses={404: {"description": "Metrics file not found"}},
+    responses={404: {"description": "Fichier de métriques introuvable"}},
 )
 async def read_metrics():
     try:
@@ -54,49 +64,112 @@ async def read_metrics():
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@router.post(
-    "/predict",
-    response_model=EnergyPredictionResponse,
-    responses={503: {"description": "Model not loaded"}},
-)
-async def write_prediction(payload: EnergyPredictionRequest):
+def _api_request_id(request: Request) -> int:
+    """Identifiant de trace ; sans lui, aucune prédiction (jamais d'input orphelin)."""
+    api_request_id = getattr(request.state, "api_request_id", None)
+    if api_request_id is None:
+        raise HTTPException(503, "Traçabilité indisponible, prédiction refusée")
+    return api_request_id
+
+
+def _resolve(session: Session, payload: BuildingPredictionRequest) -> BuildingFeatures:
     try:
-        preds = await run_in_threadpool(model_service.predict_all, payload)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
-    return EnergyPredictionResponse(
-        model_name="catboost-multitarget",
-        energy_use_kbtu=preds["energy"],
-        ghg_emissions_tco2e=preds["emissions"],
-        predicted_at=datetime.now(UTC),
+        return ps.resolve_features(session, payload.building_id, payload.data_year)
+    except ps.BuildingNotFound:
+        raise HTTPException(404, f"Bâtiment {payload.building_id} inconnu")
+    except ps.YearNotFound:
+        raise HTTPException(
+            404,
+            f"Aucune donnée {payload.data_year} pour le bâtiment {payload.building_id}",
+        )
+    except ps.BuildingOutOfScope:
+        raise HTTPException(
+            422,
+            f"Bâtiment {payload.building_id} hors périmètre du modèle "
+            "(résidentiel ou données incomplètes)",
+        )
+
+
+def _input_from_building(
+    session: Session, request: Request, payload: BuildingPredictionRequest
+) -> PredictionInput:
+    api_request_id = _api_request_id(request)
+    features = _resolve(session, payload)
+    return ps.create_input(
+        session,
+        features=feature_values(features),
+        source="building_id",
+        api_request_id=api_request_id,
+        building_record_id=features.record_id,
     )
+
+
+def _run(session: Session, inp: PredictionInput, model_name: str) -> Prediction:
+    try:
+        return ps.run_model(session, inp, model_name)
+    except NoActiveModel:
+        raise HTTPException(503, f"Aucun modèle actif : {model_name}")
+    except SQLAlchemyError:
+        raise  # géré par le handler « base indisponible »
+    except Exception:
+        log.exception("Échec du modèle %s", model_name)
+        label = "Kumo-Tabular" if model_name == KUMO_NAME else "CatBoost"
+        raise HTTPException(503, f"Modèle {label} indisponible")
+
+
+def _response(
+    prediction: Prediction, model_name: str, request: Request
+) -> EnergyPredictionResponse:
+    return EnergyPredictionResponse(
+        model_name=model_name,
+        energy_use_kbtu=prediction.energy_use_kbtu,
+        ghg_emissions_tco2e=prediction.ghg_emissions_tco2e,
+        predicted_at=prediction.predicted_at,
+        prediction_id=prediction.id,
+        request_id=request.state.request_id,
+    )
+
+
+@router.post(
+    "/predict", response_model=EnergyPredictionResponse, responses=BUILDING_RESPONSES
+)
+def write_prediction(
+    payload: BuildingPredictionRequest, request: Request, session: SessionDep
+):
+    inp = _input_from_building(session, request, payload)
+    return _response(_run(session, inp, CATBOOST_NAME), CATBOOST_NAME, request)
+
+
+@router.post(
+    "/predict/features",
+    response_model=EnergyPredictionResponse,
+    responses=UNAVAILABLE,
+)
+def write_prediction_from_features(
+    payload: EnergyPredictionRequest, request: Request, session: SessionDep
+):
+    api_request_id = _api_request_id(request)
+    inp = ps.create_input(
+        session,
+        features=ps.features_from_request(payload),
+        source="manual",
+        api_request_id=api_request_id,
+    )
+    return _response(_run(session, inp, CATBOOST_NAME), CATBOOST_NAME, request)
 
 
 @router.post(
     "/predict/compare",
     response_model=ComparisonPredictionResponse,
-    responses={503: {"description": "One or both models could not be loaded"}},
+    responses=BUILDING_RESPONSES,
 )
-async def write_comparison(payload: EnergyPredictionRequest):
-    now = datetime.now(UTC)
-    try:
-        cb = await run_in_threadpool(model_service.predict_all, payload)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=503, detail=f"CatBoost: {exc}")
-    try:
-        km = await run_in_threadpool(kumo_service.predict_all, payload)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"Kumo-Tabular: {exc}")
-
-    def resp(name, energy, emissions):
-        return EnergyPredictionResponse(
-            model_name=name,
-            energy_use_kbtu=energy,
-            ghg_emissions_tco2e=emissions,
-            predicted_at=now,
-        )
-
+def write_comparison(
+    payload: BuildingPredictionRequest, request: Request, session: SessionDep
+):
+    inp = _input_from_building(session, request, payload)
+    catboost = _run(session, inp, CATBOOST_NAME)
+    kumo = _run(session, inp, KUMO_NAME)
     return ComparisonPredictionResponse(
-        catboost_prediction=resp("catboost-multitarget", cb["energy"], cb["emissions"]),
-        kumo_prediction=resp("kumo-tabular-zero-shot", km["energy"], km["emissions"]),
+        catboost_prediction=_response(catboost, CATBOOST_NAME, request),
+        kumo_prediction=_response(kumo, KUMO_NAME, request),
     )

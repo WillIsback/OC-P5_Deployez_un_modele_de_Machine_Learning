@@ -9,6 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from synth import make_synth
+
 from app.training import data_processing as dp
 from app.training.pipeline import (
     COARSE_GRID,
@@ -16,66 +18,6 @@ from app.training.pipeline import (
     TrainPipeline,
     _candidate_sort_key,
 )
-
-
-def make_synth(n: int = 80, seed: int = 0) -> pd.DataFrame:
-    """DataFrame brut synthétique au format du benchmark Seattle."""
-    rng = np.random.default_rng(seed)
-    n_multi = n // 8
-    n_other = n - n_multi
-    nonres_types = ["NonResidential", "Commercial", "Mixed Use"]
-    building_type = (nonres_types * n_other)[:n_other] + [
-        "Multifamily LR (1-4)"
-    ] * n_multi
-    outlier = ["None"] * n
-    outlier[2] = "High outlier"
-    outlier[3] = "Low outlier"
-    compliance = ["Compliant"] * n
-    compliance[4] = "NonCompliant"
-    default_data = [False] * n
-    default_data[5] = True
-    return pd.DataFrame(
-        {
-            "BuildingType": building_type,
-            "PrimaryPropertyType": rng.choice(
-                ["Office", "Retail Store", "Warehouse"], n
-            ),
-            "Neighborhood": rng.choice(
-                ["ballard", " Downtown ", "FREMONT", "Capitol Hill"], n
-            ),
-            "Latitude": rng.uniform(47.5, 47.7, n),
-            "Longitude": rng.uniform(-122.4, -122.25, n),
-            "YearBuilt": rng.integers(1930, 2020, n),
-            "NumberofBuildings": rng.integers(0, 3, n).astype(float),
-            "NumberofFloors": rng.integers(1, 8, n),
-            "PropertyGFAParking": rng.integers(0, 20000, n),
-            "PropertyGFABuilding(s)": rng.integers(500, 40000, n),
-            "LargestPropertyUseType": rng.choice(["Office", "Retail"], n),
-            "SecondLargestPropertyUseType": rng.choice(["Retail", "Service"], n),
-            "SecondLargestPropertyUseTypeGFA": rng.uniform(0, 12000, n),
-            "ThirdLargestPropertyUseType": rng.choice(["Parking", "Service"], n),
-            "ThirdLargestPropertyUseTypeGFA": rng.uniform(0, 8000, n),
-            "SiteEnergyUse(kBtu)": rng.uniform(1000, 500000, n),
-            "TotalGHGEmissions": rng.uniform(1, 500, n),
-            "NaturalGas(kBtu)": rng.uniform(0, 1000, n),
-            "SteamUse(kBtu)": rng.uniform(0, 1000, n),
-            "PropertyGFATotal": rng.integers(500, 40000, n),
-            "LargestPropertyUseTypeGFA": rng.integers(0, 40000, n),
-            "OSEBuildingID": np.arange(n),
-            "PropertyName": [f"b{i}" for i in range(n)],
-            "Address": [f"{i} st" for i in range(n)],
-            "TaxParcelIdentificationNumber": [f"t{i}" for i in range(n)],
-            "ZipCode": rng.choice(["98101", "98102", "98103"], n),
-            "CouncilDistrictCode": rng.integers(1, 8, n),
-            "ListOfAllPropertyUseTypes": ["Office"] * n,
-            "ComplianceStatus": compliance,
-            "DefaultData": default_data,
-            "Outlier": outlier,
-            "YearsENERGYSTARCertified": [np.nan] * n,
-            "ENERGYSTARScore": rng.uniform(0, 100, n),
-            "GHGEmissionsIntensity": rng.uniform(0, 10, n),
-        }
-    )
 
 
 def test_build_clean_drops_multifamily_and_leakage():
@@ -407,3 +349,46 @@ def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
     assert set(metrics) == set(dp.TARGETS)
     for target in dp.TARGETS:
         assert set(metrics[target]["models"]) == {"catboost"}
+
+
+def test_filter_scope_excludes_only_residential():
+    df = make_synth(80)
+    scoped = dp.filter_scope(df)
+    assert not scoped["BuildingType"].str.startswith("Multifamily").any()
+    assert 2 in scoped.index  # l'outlier reste dans le périmètre
+
+
+def test_apply_common_corrections():
+    df = make_synth(40)
+    df.loc[0, "NumberofBuildings"] = 0
+    out = dp.apply_common_corrections(df)
+    assert out.loc[0, "NumberofBuildings"] == 1
+    assert (out["Neighborhood"] == out["Neighborhood"].str.upper().str.strip()).all()
+
+
+def test_flag_training_eligibility_reasons():
+    df = dp.filter_scope(make_synth(80))
+    df.loc[6, "SiteEnergyUse(kBtu)"] = 0
+    df.loc[7, "TotalGHGEmissions"] = np.nan
+    flags = dp.flag_training_eligibility(df)
+    assert flags.loc[2, "exclusion_reason"] == "outlier"
+    assert flags.loc[4, "exclusion_reason"] == "non_compliant"
+    assert flags.loc[6, "exclusion_reason"] == "non_positive_target"
+    assert flags.loc[7, "exclusion_reason"] == "missing_target"
+    assert flags.loc[0, "is_training_eligible"]
+    assert flags.loc[0, "exclusion_reason"] is None
+    assert (flags["is_training_eligible"] == flags["exclusion_reason"].isna()).all()
+
+
+def test_assign_split_matches_train_test_split():
+    from sklearn.model_selection import train_test_split
+
+    idx = pd.Index(range(100, 150))
+    split = dp.assign_split(idx, test_size=0.2, seed=42)
+    _, expected_test = train_test_split(idx, test_size=0.2, random_state=42)
+    assert set(split.index[split == "test"]) == set(expected_test)
+    assert set(split.unique()) == {"train", "test"}
+
+
+def test_osebuildingid_not_pii():
+    assert "OSEBuildingID" not in dp.PII_COLUMNS

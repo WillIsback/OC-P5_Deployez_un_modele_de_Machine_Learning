@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
+      DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}@db:5432/p5
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./models:/app/models:ro
+
+  # Outillage (non démarré par `up`) : provisionnement, ingestion, préparation,
+  # évaluation, entraînement. Seul ce service reçoit les identifiants
+  # admin/propriétaire (jamais le service `api`).
+  tools:
+    build: .
+    profiles: ["tools"]
+    # Uid/gid de l'hôte pour écrire dans ./models et ./mlruns (montages liés).
+    # Si `id -u` / `id -g` ne valent pas 1000, définir UID et GID dans .env.
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}@db:5432/postgres
+      DATABASE_OWNER_URL: postgresql+psycopg://p5_owner:${P5_OWNER_PASSWORD:?définir P5_OWNER_PASSWORD dans .env}@db:5432/p5
+      MLFLOW_TRACKING_URI: postgresql+psycopg://p5_mlflow:${P5_MLFLOW_PASSWORD:?définir P5_MLFLOW_PASSWORD dans .env}@db:5432/mlflow
+      P5_OWNER_PASSWORD: ${P5_OWNER_PASSWORD:?définir P5_OWNER_PASSWORD dans .env}
+      P5_API_PASSWORD: ${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}
+      P5_MLFLOW_PASSWORD: ${P5_MLFLOW_PASSWORD:?définir P5_MLFLOW_PASSWORD dans .env}
+      TRAINING_YEAR: ${TRAINING_YEAR:-2016}
+      # Comptes de démo (johndoe/secret) créés par create_db si 1 : jamais en production.
+      P5_SEED_DEMO_USERS: ${P5_SEED_DEMO_USERS:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+      # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
+      - ./models:/app/models
+      # Artefacts MLflow (les métadonnées sont dans la base `mlflow`).
+      - ./mlruns:/app/mlruns
+    # Journaux d'entraînement CatBoost (catboost_info/ dans le dossier courant,
+    # /app n'est pas inscriptible par l'uid de l'hôte) : jetables.
+    tmpfs:
+      - /app/catboost_info
+
+volumes:
+  pgdata:

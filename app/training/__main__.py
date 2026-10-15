@@ -1,10 +1,15 @@
-"""Entrée CLI : ``uv run python -m app.training [--download]``."""
+"""Entrée CLI : ``uv run python -m app.training`` (lit le jeu préparé en base)."""
 
 from __future__ import annotations
 
 import argparse
+import json
+from datetime import UTC, datetime
+from pathlib import Path
 
-from app.training import data_processing as dp
+from app.db import session as db_session
+from app.db.registry import CATBOOST_NAME, register_model
+from app.db.training_data import load_training_data
 from app.training.pipeline import TrainPipeline
 
 
@@ -12,15 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Entraînement CatBoost multi-cible (P5)"
     )
-    parser.add_argument(
-        "--csv",
-        default=str(dp.DEFAULT_DATASET_PATH),
-        help="Chemin du CSV brut (défaut : data/2016_Building_Energy_Benchmarking.csv)",
-    )
     parser.add_argument("--output-dir", default="models")
-    parser.add_argument(
-        "--download", action="store_true", help="Télécharge le dataset s'il est absent"
-    )
     parser.add_argument(
         "--no-kumo", action="store_true", help="N'évalue pas le modèle Kumo"
     )
@@ -30,19 +27,46 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args()
-    try:
-        csv_path = dp.ensure_dataset(args.csv, download=args.download)
-    except (FileNotFoundError, RuntimeError) as exc:
-        parser.error(str(exc))
-        return
+    args = parser.parse_args(argv)
+    # Écritures confinées au projet : refuse un --output-dir hors du répertoire courant.
+    output_dir = Path(args.output_dir).resolve()
+    if not output_dir.is_relative_to(Path.cwd().resolve()):
+        parser.error(
+            f"--output-dir doit se trouver sous le répertoire du projet "
+            f"({Path.cwd()}) : {args.output_dir}"
+        )
+    factory = db_session.owner_session_factory()
+    with factory() as session:
+        try:
+            data = load_training_data(session)
+        except RuntimeError as exc:
+            parser.error(str(exc))
+            return
     pipe = TrainPipeline(
-        csv_path=csv_path, output_dir=args.output_dir, cv_splits=args.cv_splits
+        training_data=data, output_dir=output_dir, cv_splits=args.cv_splits
     )
     metrics = pipe.run(include_kumo=not args.no_kumo)
-    print(f"[done] scores: {metrics}")
+    with factory() as session:
+        model = register_model(
+            session,
+            name=CATBOOST_NAME,
+            version=datetime.now(UTC).strftime("%Y%m%d%H%M%S"),
+            mlflow_run_id=pipe.mlflow_run_id,
+            artifact_path=str(output_dir),
+        )
+        name, version = model.name, model.version
+    # Lu par l'API au chargement des .cbm pour tracer la version réellement servie.
+    version_info = {
+        "name": name,
+        "version": version,
+        "mlflow_run_id": pipe.mlflow_run_id,
+    }
+    (output_dir / "version.json").write_text(
+        json.dumps(version_info, indent=2), encoding="utf-8"
+    )
+    print(f"[done] {name} v{version} activé — scores: {metrics}")
 
 
 if __name__ == "__main__":

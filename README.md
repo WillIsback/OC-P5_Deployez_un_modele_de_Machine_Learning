@@ -102,6 +102,28 @@ uv run ruff format .
 
 ---
 
+## 🗄️ Base de données
+
+L'API s'appuie sur **PostgreSQL** : dataset structuré (brut puis features préparées), traçabilité de chaque appel API par utilisateur, prédictions versionnées et authentification via la table `users`. Schéma UML, choix techniques, rôles et requêtes d'exemple : voir [`docs/db/README.md`](docs/db/README.md) (DDL : [`docs/db/schema.sql`](docs/db/schema.sql)).
+
+Démarrage avec Docker Compose :
+
+```bash
+cp .example.env .env                 # puis remplacer les valeurs change-me* et SECRET_KEY
+docker compose up -d db
+docker compose run --rm tools python -m app.db.create_db
+docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
+docker compose run --rm tools python -m app.db.prepare --year 2016
+docker compose run --rm tools python -m app.training   # models/*.cbm (non versionnés)
+docker compose up -d api             # API sur http://localhost:8080
+```
+
+Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
+
+Le service `tools` (profil Compose, non démarré par `up`) est le seul à recevoir les identifiants administrateur et propriétaire ; le service `api` n'utilise que le rôle restreint `p5_api`. Les CSV 2017–2019 doivent être déposés dans `data/` et `YEAR_COLUMN_RENAMES` complété dans `app/db/ingest.py` avant ingestion (voir `docs/db/README.md`).
+
+---
+
 ## 🔐 Authentification Bearer JWT
 
 Toutes les routes du router `/model` sont protégées par un **Bearer token** (schéma `HTTPBearer`). Obtenez un token via `POST /token` :
@@ -118,18 +140,31 @@ Puis utilisez-le sur les routes protégées :
 curl http://localhost:8000/model/list -H "Authorization: Bearer <TOKEN>"
 ```
 
-La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`.
+La clé `SECRET_KEY` est chargée depuis le fichier `.env` (voir `.gitignore`). Génération : `openssl rand -hex 32`. Elle est **obligatoire** : le code ne contient aucune clé par défaut, et créer ou vérifier un jeton sans `SECRET_KEY` lève une erreur explicite.
 
 ---
 
 ## ⚡ API de prédiction (CatBoost — Seattle)
 
-La route `POST /model/predict` prédit la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
+La route `POST /model/predict` prédit, à partir d'un `building_id` présent en base (features préparées par `app.db.prepare`), la consommation d'énergie (`SiteEnergyUse(kBtu)`) d'un bâtiment de Seattle à l'aide d'un `CatBoostRegressor`, en suivant le pipeline du projet de référence [OC-Ai-Engineer-P3](https://github.com/WillIsback/OC-Ai-Engineer-P3) (target transformée `log1p`, prédiction ramenée en unités réelles avec `expm1`).
 
-Exemple d'appel :
+Exemple d'appel par identifiant de bâtiment (`data_year` optionnel : par défaut l'année la plus récente disponible) :
 
 ```bash
-curl -X POST http://localhost:8000/model/predict \
+curl -X POST http://localhost:8080/model/predict \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"building_id": 1}'
+```
+
+La réponse inclut `prediction_id` et `request_id` (en-tête `X-Request-ID`) pour retrouver la trace en base. Codes d'erreur : 404 (bâtiment ou année inconnus), 422 (hors périmètre, ex. résidentiel), 503 (modèle indisponible).
+
+#### Saisie libre — `POST /model/predict/features`
+
+Pour un bâtiment absent de la base (simulation, test), envoyer directement les features à `POST /model/predict/features` :
+
+```bash
+curl -X POST http://localhost:8080/model/predict/features \
   -H "Authorization: Bearer <TOKEN>" \
   -H "Content-Type: application/json" \
   -d '{"BuildingType":"Commercial","PrimaryPropertyType":"Office","Neighborhood":"Ballard","Latitude":47.62,"Longitude":-122.35,"YearBuilt":1990,"NumberofBuildings":1,"NumberofFloors":4,"PropertyGFAParking":5000,"PropertyGFABuilding":15000,"LargestPropertyUseType":"Office","SecondLargestPropertyUseType":"Retail","SecondLargestPropertyUseTypeGFA":3000,"ThirdLargestPropertyUseType":"Parking","ThirdLargestPropertyUseTypeGFA":2000,"Has_NaturalGas":true,"Has_Steam":false}'
@@ -151,7 +186,7 @@ Attention aux correspondances entre le jeu actuel et le schéma historique du mo
 
 Les champs de surface d'usage absents dans la source sont ramenés à `0`; la valeur catégorielle source `NA` est conservée telle quelle. Ces payloads illustrent le mapping et l'appel à l'API, mais les écarts de taxonomie entre les deux millésimes peuvent limiter la qualité des prédictions.
 
-Chaque objet JSON ci-dessous est à envoyer séparément à `POST /model/predict`.
+Chaque objet JSON ci-dessous est à envoyer séparément à `POST /model/predict/features` (saisie libre).
 
 #### 1. Hôpital — DataYear 2025
 
@@ -230,17 +265,20 @@ Les modèles sont chargés depuis `models/energy.cbm` et `models/emissions.cbm` 
 **Entraînement réel (pipeline multi-cible + MLflow)** :
 
 ```bash
-# Sur un clone neuf, télécharge le dataset puis entraîne
-uv run python -m app.training --download
+# 1. Ingérer puis préparer l'année d'entraînement dans PostgreSQL
+#    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent,
+#    mais uniquement en local avec `uv run` : dans le service tools, ./data est monté en lecture seule)
+uv run python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv [--download]
+uv run python -m app.db.prepare --year 2016
 
-# Sinon, dataset déjà présent
+# 2. Entraîner depuis la base (rôle propriétaire : DATABASE_OWNER_URL)
 uv run python -m app.training
 ```
 
-Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
+L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_features` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
 `TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
-logue les runs MLflow (`uv run mlflow ui`). Sorties : `models/<cible>.cbm` et
-`models/scores.json`.
+logue les runs MLflow (`uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"`). Sorties : `models/<cible>.cbm`,
+`models/scores.json` et `models/version.json` (version servie, lue par l'API).
 
 ### Suivi d'expérimentation avec MLflow
 
@@ -251,11 +289,14 @@ L'entraînement (`app.training`) journalise automatiquement chaque run dans **ML
 
 Configurable par variables d'environnement :
 ```bash
-export MLFLOW_TRACKING_URI="sqlite:///mlflow.db"   # défaut
+export MLFLOW_TRACKING_URI="postgresql+psycopg://p5_mlflow:<mdp>@localhost:5432/mlflow"   # voir .example.env
 export MLFLOW_EXPERIMENT="seattle-energy"           # défaut
 uv run python -m app.training
 ```
-Puis visualiser : `uv run mlflow ui`.
+Puis visualiser (les runs sont dans PostgreSQL, pas dans `./mlruns` : préciser la base) :
+```bash
+uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"
+```
 
 ### Tests unitaires du training
 
@@ -283,6 +324,9 @@ uv run pytest --cov=app tests/                 # ensemble des tests
 app/                              # Code source de l'application FastAPI
 docs/
 ├── ci-cd/README.md               # Documentation du pipeline CI/CD
+├── db/
+│   ├── README.md                 # Base PostgreSQL : schéma, choix, rôles, requêtes
+│   └── schema.sql                # DDL généré par Alembic
 ├── diagrams/
 │   ├── workflow.d2               # Source D2 du diagramme
 │   └── workflow.svg              # SVG généré
@@ -300,6 +344,7 @@ RELEASE.md                        # Runbook de release
 | Document | Description |
 |----------|-------------|
 | [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows, rulesets, sécurité du pipeline |
+| [Base de données](docs/db/README.md) | Schéma UML, choix techniques, rôles, mise en route, requêtes SQL |
 | [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
 | [Runbook Release](RELEASE.md) | Semver, gates CD, rollback, incidents |
 | [Politique semver](docs/policies/semver.md) | Règle du max, comportement v0.x |

@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 from app.schemas.api import CAT_FEATURES, FEATURE_COLUMNS, TARGETS
 
@@ -19,7 +20,6 @@ DEFAULT_DATASET_PATH = Path("data/2016_Building_Energy_Benchmarking.csv")
 TARGET_COLUMNS = [t["column"] for t in TARGETS.values()]
 
 PII_COLUMNS = [
-    "OSEBuildingID",
     "PropertyName",
     "Address",
     "TaxParcelIdentificationNumber",
@@ -41,49 +41,75 @@ DATA_LEAKAGE_COLUMNS = [
 ]
 
 
-def build_clean(df: pd.DataFrame) -> pd.DataFrame:
-    """Applique la chaîne de nettoyage du notebook (F0 -> F11)."""
-    habitation = df["BuildingType"].str.startswith("Multifamily", na=False)
-    out = df.loc[~habitation].copy()
+def filter_scope(df: pd.DataFrame) -> pd.DataFrame:
+    """Périmètre du modèle : exclut le résidentiel (Multifamily*)."""
+    residential = df["BuildingType"].str.startswith("Multifamily", na=False)
+    return df.loc[~residential].copy()
 
-    out = out.loc[:, out.nunique() > 1]
 
-    if "Outlier" in out.columns:
-        out = out.drop(
-            index=out[out["Outlier"].isin(["High outlier", "Low outlier"])].index
-        )
-        out = out.drop(columns=["Outlier"])
-
-    out = out.drop(columns=DATA_LEAKAGE_COLUMNS, errors="ignore")
-    out = out.drop(
-        columns=["YearsENERGYSTARCertified", "ENERGYSTARScore"], errors="ignore"
-    )
-    out = out.drop(columns=PII_COLUMNS, errors="ignore")
-
-    if "ComplianceStatus" in out.columns:
-        out = out[out["ComplianceStatus"].eq("Compliant")].drop(
-            columns=["ComplianceStatus", "DefaultData"], errors="ignore"
-        )
-
-    out = out.drop(
-        columns=["PropertyGFATotal", "LargestPropertyUseTypeGFA"], errors="ignore"
-    )
-
+def apply_common_corrections(df: pd.DataFrame) -> pd.DataFrame:
+    """Corrections valables pour toutes les années (entraînement et production)."""
+    out = df.copy()
     if "Neighborhood" in out.columns:
         out["Neighborhood"] = out["Neighborhood"].str.upper().str.strip()
-
-    out = out.drop(columns=["ListOfAllPropertyUseTypes"], errors="ignore")
-
-    # F10 - les deux cibles strictement positives
-    for target in TARGET_COLUMNS:
-        out = out[out[target] > 0]
-
     if "NumberofBuildings" in out.columns:
         out.loc[out["NumberofBuildings"] == 0, "NumberofBuildings"] = 1
-
-    # défensif : le filtre > 0 ci-dessus a déjà exclu les cibles NaN
-    out = out.dropna(subset=TARGET_COLUMNS)
     return out
+
+
+def flag_training_eligibility(df: pd.DataFrame) -> pd.DataFrame:
+    """Filtres qualité de l'entraînement ; la première raison rencontrée l'emporte."""
+    reason = pd.Series([None] * len(df), index=df.index, dtype=object)
+
+    def mark(mask: pd.Series, label: str) -> None:
+        reason[mask & reason.isna()] = label
+
+    if "Outlier" in df.columns:
+        mark(df["Outlier"].isin(["High outlier", "Low outlier"]), "outlier")
+    if "ComplianceStatus" in df.columns:
+        mark(df["ComplianceStatus"].ne("Compliant"), "non_compliant")
+    targets = df[TARGET_COLUMNS]
+    mark(targets.isna().any(axis=1), "missing_target")
+    mark((targets <= 0).any(axis=1), "non_positive_target")
+    return pd.DataFrame(
+        {"is_training_eligible": reason.isna(), "exclusion_reason": reason},
+        index=df.index,
+    )
+
+
+def assign_split(
+    eligible_index: pd.Index, test_size: float = 0.2, seed: int = 42
+) -> pd.Series:
+    """Split train/test reproductible (identique à l'ancien TrainPipeline.split)."""
+    _, idx_test = train_test_split(
+        eligible_index, test_size=test_size, random_state=seed
+    )
+    split = pd.Series("train", index=eligible_index, dtype=object)
+    split.loc[idx_test] = "test"
+    return split
+
+
+def build_clean(df: pd.DataFrame) -> pd.DataFrame:
+    """Applique la chaîne de nettoyage du notebook (F0 -> F11)."""
+    out = filter_scope(df)
+    out = out.loc[:, out.nunique() > 1]
+    out = out.loc[flag_training_eligibility(out)["is_training_eligible"]]
+    out = out.drop(
+        columns=[
+            "Outlier",
+            "ComplianceStatus",
+            "DefaultData",
+            "YearsENERGYSTARCertified",
+            "ENERGYSTARScore",
+            "PropertyGFATotal",
+            "LargestPropertyUseTypeGFA",
+            "ListOfAllPropertyUseTypes",
+            *DATA_LEAKAGE_COLUMNS,
+            *PII_COLUMNS,
+        ],
+        errors="ignore",
+    )
+    return apply_common_corrections(out)
 
 
 def build_flags(df_raw: pd.DataFrame, df_clean: pd.DataFrame) -> pd.DataFrame:
