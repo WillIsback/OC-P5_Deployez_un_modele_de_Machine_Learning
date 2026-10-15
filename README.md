@@ -77,21 +77,50 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 ---
 
-## 🚀 Démarrage rapide
+## 🚀 Quickstart
+
+**Prérequis** : Git, Docker avec Compose v2, [uv](https://docs.astral.sh/uv/getting-started/installation/), `curl` (Linux, macOS ou WSL). Ports utilisés : `8080` (API) et `5432` (PostgreSQL). S'ils sont déjà pris, les changer **avant** de lancer le bloc, par exemple `export API_PORT=18080 DB_PORT=15432`.
+
+Depuis un dossier vide, ces commandes clonent le projet, provisionnent la base, entraînent les modèles, lancent l'API puis la vérifient (jeton + prédiction). Elles sont rejouées **telles quelles** sur une machine vierge par le workflow `ci-install` (`scripts/quickstart_test.sh`) : si ce bloc casse, la CI échoue.
 
 ```bash
-# Cloner le dépôt
-git clone https://github.com/<org>/P5_Deployez_un_modele_de_Machine_Learning.git
-cd P5_Deployez_un_modele_de_Machine_Learning
+git clone https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning.git
+cd OC-P5_Deployez_un_modele_de_Machine_Learning
 
+# Configuration de démonstration (comptes johndoe/alice) : changer les mots de passe et SECRET_KEY hors démo
+cp .example.env .env
+printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >> .env   # le service tools écrit dans ./models avec votre uid
+mkdir -p models mlruns
+
+# Données : CSV 2016 téléchargé depuis l'hôte (data/ est monté en lecture seule dans le service tools)
+uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
+
+# Base, ingestion (features et split inclus), entraînement (models/*.cbm), puis API sur http://localhost:8080
+docker compose --profile tools build --pull   # images api + tools sur la dernière base :base (GHCR)
+docker compose up -d --wait db
+docker compose run --rm tools python -m app.db.create_db
+docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
+docker compose run --rm tools python -m app.training
+docker compose up -d --wait api
+
+# Vérification : obtenir un jeton puis prédire la consommation d'un bâtiment
+API=http://localhost:${API_PORT:-8080}
+TOKEN=$(curl -fsS -X POST $API/token -d "username=johndoe&password=secret" | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
+curl -fsS -X POST $API/model/predict -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"building_id": 1}'
+```
+
+Documentation interactive : http://localhost:8080/docs. Arrêt : `docker compose down` (ajouter `-v` pour effacer la base).
+
+---
+
+## 🛠️ Développement local
+
+```bash
 # Installer les dépendances
 uv sync
 
-# Configurer l'environnement (SECRET_KEY, DATABASE_URL… lus depuis .env)
-cp .example.env .env                 # puis remplacer les valeurs change-me* et SECRET_KEY
-
-# Lancer l'application (http://localhost:8000) : nécessite une base provisionnée
-# et des modèles entraînés, voir la section « Base de données » ci-dessous
+# Lancer l'application en mode développement (http://localhost:8000) : nécessite
+# la base provisionnée et les modèles entraînés par le Quickstart
 uv run fastapi dev app/main.py
 
 # Exécuter les tests (les tests PostgreSQL sont ignorés si aucune base n'est joignable)
@@ -102,6 +131,9 @@ uv run ruff check .
 
 # Formatter
 uv run ruff format .
+
+# Rejouer le Quickstart dans un dossier vide (comme la CI)
+scripts/quickstart_test.sh
 ```
 
 Les tests de base de données créent une base `p5_test` via l'URL administrateur `TEST_DATABASE_ADMIN_URL` (par défaut `postgres:$POSTGRES_PASSWORD@localhost:5432`, soit le service `db` de Docker Compose). Sans PostgreSQL joignable, ils sont **ignorés** (skip) ; avec `REQUIRE_TEST_DB=1` (utilisé en CI), ils **échouent** à la place.
@@ -112,20 +144,7 @@ Les tests de base de données créent une base `p5_test` via l'URL administrateu
 
 L'API s'appuie sur **PostgreSQL** : dataset structuré (identité des bâtiments, features par année, cibles réelles), traçabilité de chaque appel API par utilisateur, prédictions versionnées et authentification via la table `users`. Schéma UML, choix techniques, rôles et requêtes d'exemple : voir [`docs/db/README.md`](docs/db/README.md) (DDL : [`docs/db/schema.sql`](docs/db/schema.sql)).
 
-Démarrage avec Docker Compose :
-
-```bash
-cp .example.env .env                 # puis remplacer les valeurs change-me* et SECRET_KEY
-mkdir -p models mlruns              # créés par l'utilisateur courant (sinon root via Docker)
-# data/ n'est pas versionné et est monté en lecture seule dans `tools` :
-# télécharger le CSV 2016 depuis l'hôte (aucune base requise)
-uv run python -c "from app.training.data_processing import ensure_dataset; ensure_dataset(download=True)"
-docker compose up -d db
-docker compose run --rm tools python -m app.db.create_db
-docker compose run --rm tools python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv
-docker compose run --rm tools python -m app.training   # models/*.cbm (non versionnés)
-docker compose up -d api             # API sur http://localhost:8080
-```
+La base est provisionnée et alimentée par le [Quickstart](#-quickstart) (`create_db`, `ingest` — nettoyage, features et split inclus — puis `app.training`).
 
 Les comptes de démonstration `johndoe` / `alice` (mot de passe `secret`) ne sont créés par `create_db` que si `P5_SEED_DEMO_USERS=1` (valeur de `.example.env`, transmise au service `tools`) ou avec `python -m app.db.create_db --demo-users`. Seul `johndoe` est actif : `alice` est créée **inactive** et `POST /token` lui répond 400 (elle sert à tester le refus d'un compte désactivé). **En production, laisser `P5_SEED_DEMO_USERS` à 0 (ou absent)** et créer les utilisateurs réels directement dans la table `users`.
 
@@ -152,9 +171,9 @@ Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md
 | `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration | `0` (Compose) |
 | `MODEL_PATH_ENERGY` / `MODEL_PATH_EMISSIONS` | Modèles CatBoost servis | `models/energy.cbm` / `models/emissions.cbm` |
 | `MODEL_VERSION_PATH` / `MODEL_METRICS_PATH` | Version servie / table de scores de `GET /model/metrics` | `models/version.json` / `models/scores.json` |
-| `API_PORT` | Port hôte du service `api` (Compose) | `8080` |
+| `API_PORT` / `DB_PORT` | Ports hôte des services `api` et `db` (Compose) | `8080` / `5432` |
 | `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./models` et `./mlruns`) | `1000` / `1000` |
-| `TEST_DATABASE_ADMIN_URL` / `REQUIRE_TEST_DB` | Base des tests / `1` : échec au lieu de skip sans base | voir « Démarrage rapide » |
+| `TEST_DATABASE_ADMIN_URL` / `REQUIRE_TEST_DB` | Base des tests / `1` : échec au lieu de skip sans base | voir « Développement local » |
 
 ---
 

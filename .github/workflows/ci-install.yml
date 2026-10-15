@@ -1,0 +1,70 @@
+# Workflow : Test d'installation (parcours évaluateur)
+# Rejoue le bloc « Quickstart » du README tel quel sur une VM vierge : clone,
+# configuration, données, Docker Compose, entraînement, API et vérification.
+# scripts/quickstart_test.sh n'ajoute aucune commande : la doc est le test.
+name: ci-install
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "README.md"
+      - "app/**"
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - "Dockerfile.base"
+      - ".example.env"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/quickstart_test.sh"
+      - ".github/workflows/ci-install.yml"
+  push:
+    branches: [main]
+  schedule:
+    # Hebdomadaire : détecte une casse venue de l'extérieur (image de base,
+    # source du dataset, dépendances) même sans commit.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: install-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci-install:
+    name: ci-install
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # Clone vierge : pas de cache, pas de credentials persistés, comme un évaluateur.
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Prérequis annoncés par le README (Docker est déjà présent sur le runner).
+      - name: Installer uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          version: "latest"
+          enable-cache: false
+
+      # Le `git clone` du README est redirigé vers ce checkout (code de la PR) ;
+      # l'URL du README est tout de même vérifiée (publique et joignable).
+      - name: Quickstart du README
+        env:
+          QUICKSTART_CLONE_FROM: ${{ github.workspace }}
+          QUICKSTART_KEEP: "1"
+        run: scripts/quickstart_test.sh README.md "$RUNNER_TEMP/quickstart"
+
+      - name: Journaux des conteneurs (en cas d'échec)
+        if: failure()
+        working-directory: ${{ runner.temp }}/quickstart
+        run: |
+          cd "$(find . -maxdepth 2 -name docker-compose.yml -printf '%h' -quit)" \
+            && docker compose --profile '*' logs --no-color --tail=200 || true
