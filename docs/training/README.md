@@ -18,7 +18,7 @@ Ou en local avec `uv` :
 ```bash
 # 1. Ingérer l'année d'entraînement (nettoyage, features et split inclus)
 #    (le CSV 2016 doit être présent dans data/ ; --download le récupère s'il est absent,
-#    mais uniquement en local avec `uv run` : dans le service tools, ./data est monté en lecture seule)
+#    en local comme dans le service tools où ./data est monté en lecture-écriture)
 uv run python -m app.db.ingest --year 2016 --csv data/2016_Building_Energy_Benchmarking.csv [--download]
 
 # 2. Entraîner depuis la base (rôle propriétaire : DATABASE_OWNER_URL)

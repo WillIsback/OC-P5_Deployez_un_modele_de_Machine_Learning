@@ -6,7 +6,7 @@ Le workflow `release.yml` est déclenché automatiquement sur **push dans `main`
 Il peut aussi être déclenché manuellement via `workflow_dispatch` avec les paramètres :
 
 - `bump` : `auto` (défaut), `patch`, `minor`, `major`, `none`
-- `dry_run` : déclaré (défaut `true`) mais **lu par aucun job** — un `workflow_dispatch` qui calcule une version publie **réellement** (tag, release, image). Ne pas compter sur ce paramètre (voir #33).
+- `dry_run` : `true` (défaut) exécute `detect` et les gates, mais ne publie **rien** : ni tag Git, ni GitHub Release, ni image. Seul un dispatch avec `dry_run: false` publie.
 
 **Court-circuits** (le job `detect` renvoie `version=skipped` et tout le reste est ignoré) :
 
@@ -40,7 +40,6 @@ Deux gates bloquantes avant toute publication (le job `publish` exige leur succ�
 - Le tag cible `vX.Y.Z` n'existe pas (local et distant) — bloquant
 - Version différente du dernier tag — bloquant
 - Cohérence avec `pyproject.toml` — non bloquant (avertissement)
-- Présence d'une entrée dans `CHANGELOG.md` — non bloquant (le fichier n'existe pas dans le dépôt)
 
 ### 2. `gate-container-scan`
 - Build de l'image Docker (`Dockerfile`, dérivé de l'image `:base`) — bloquant
@@ -52,12 +51,14 @@ Deux gates bloquantes avant toute publication (le job `publish` exige leur succ�
   - Taille de l'image : affichée, aucun plafond
 - Aucune allowlist d'image de base
 
-**Si une gate échoue :** le job `publish` est ignoré, aucun artefact n'est publié. Le job `notify-failure` (uniquement sur `push`) affiche un récapitulatif dans les logs du run (`console.log`) ; **aucun commentaire n'est posté**.
+L'image est **construite une seule fois** ici (hors dry-run, elle est poussée sous le tag `<version>-candidate`). Le job `publish` ne fait que **retaguer** cette image (même digest) : l'image publiée est donc exactement celle qui a été scannée et smoke-testée.
+
+**Si une gate échoue :** le job `publish` est ignoré, aucun artefact n'est publié. Le job `notify-failure` (uniquement sur `push`) poste un commentaire récapitulatif sur la PR associée au commit, ou à défaut sur le commit lui-même.
 
 ### Dépendance à l'image `:base`
 
 Le `Dockerfile` applicatif part de `ghcr.io/<owner>/<repo>:base`, publiée par le workflow `base-image.yml` (push sur `main` modifiant `pyproject.toml`, `uv.lock` ou `Dockerfile.base`, ou `workflow_dispatch`).  
-Les deux workflows démarrent **en parallèle** au merge, sans dépendance entre eux : si la PR modifie les dépendances, `gate-container-scan` peut utiliser l'ancien `:base` et le smoke test échoue. Attendre la fin de `base-image`, puis relancer le run `release` (« Re-run failed jobs »).
+Le job `wait-base-image` de `release.yml` attend la fin de ce run (s'il a été déclenché pour le commit) avant de construire l'image applicative : la release part donc toujours d'une `:base` à jour.
 
 ## 🏷️ Tag de release (R9)
 
@@ -69,13 +70,13 @@ Les deux workflows démarrent **en parallèle** au merge, sans dépendance entre
 ## 🐳 Publication Docker
 
 - Registre : `ghcr.io/<owner>/<repo>` (en minuscules)
-- Tags poussés : `vX.Y.Z`, `vX.Y.Z.0` (superflu, voir #37) et `latest` ; pas de tag `vX.Y`
+- Tags poussés : `vX.Y.Z`, `vX.Y` et `latest`
 - Plateforme : celle du runner (`linux/amd64`) ; pas de build multi-arch
 - Attestations :
-  - **SBOM** et provenance BuildKit : `sbom: true` et `provenance: mode=max` de `docker/build-push-action`, attachés à l'image
+  - **SBOM** et provenance BuildKit : `sbom: true` et `provenance: mode=max` de `docker/build-push-action` (dans `gate-container-scan`), attachés à l'image
   - **Provenance GitHub** : `actions/attest-build-provenance` sur le digest de l'image (vérifiable via `gh attestation verify`)
-- Le digest n'est **pas** communiqué dans les notes de release
-- L'image publiée est reconstruite dans `publish` (avec le cache GHA) : ce n'est pas le même build que celui scanné par `gate-container-scan`
+- Le digest est affiché dans les logs de la vérification post-release (pas dans les notes de release)
+- L'image publiée **est** celle scannée : `gate-container-scan` construit l'image une fois et la pousse sous un tag `<version>-candidate` ; `publish` la retague (`docker buildx imagetools create`) en `vX.Y.Z`, `vX.Y` et `latest` — même digest
 
 ## 🔄 Séquence de publication et idempotence
 
@@ -84,8 +85,8 @@ Ordre réel des étapes du job `publish` :
 1. Génération des notes de release (`git log --format="* %s"` depuis le dernier tag, non groupé ; aucun `CHANGELOG.md` écrit)
 2. Push du tag Git `vX.Y.Z` (ignoré si le tag existe déjà)
 3. Création de la GitHub Release (`gh release create --latest`, ou `gh release edit` si elle existe déjà)
-4. Build & push de l'image Docker (SBOM + provenance BuildKit)
-5. Attestation de provenance (`actions/attest-build-provenance`)
+4. Retag de l'image déjà construite et scannée par `gate-container-scan` (`docker buildx imagetools create`) en `vX.Y.Z`, `vX.Y` et `latest`
+5. Attestation de provenance (`actions/attest-build-provenance`) sur le digest retagué
 
 Ces étapes ne sont pas atomiques : le tag est poussé avant la release. Les étapes 2 et 3 sont idempotentes, ce qui permet de **relancer le run en échec** (« Re-run failed jobs ») : les sorties de `detect` sont conservées.  
 Un **nouveau** run, lui, ne rejoue rien : il ne voit aucun commit depuis le tag et renvoie `version=skipped`. De même, `workflow_dispatch bump:none` produit toujours `version=skipped`.

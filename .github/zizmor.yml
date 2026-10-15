@@ -1,0 +1,9 @@
+# Configuration zizmor (https://docs.zizmor.sh/configuration/)
+# Utilisée par l'étape « Analyse de sécurité des workflows » de ci-code-quality.yml.
+rules:
+  dangerous-triggers:
+    ignore:
+      # `workflow_run` est volontaire : ai-code-review.yml tourne dans le contexte
+      # de la branche par défaut, ne checkout et n'exécute jamais le code de la PR
+      # (diff et sources lus via l'API GitHub). Voir l'en-tête du workflow.
+      - ai-code-review.yml
