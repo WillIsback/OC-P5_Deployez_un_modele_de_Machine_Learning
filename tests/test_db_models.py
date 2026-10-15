@@ -105,5 +105,4 @@ def test_features_roundtrip():
     assert back["Has_NaturalGas"] == 1
     assert back["Has_Steam"] == 0
     assert back["SecondLargestPropertyUseTypeGFA"] is None
-    assert mapping.feature_values(obj)["latitude"] == 47.6
     assert not math.isnan(back["Latitude"])

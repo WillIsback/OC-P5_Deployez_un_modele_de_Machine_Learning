@@ -136,11 +136,6 @@ def features_to_sql(features: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def feature_values(obj: Any) -> dict[str, Any]:
-    """Bloc de features d'une ligne ORM, clés SQL (pour copier un snapshot)."""
-    return {col: getattr(obj, col) for col in FEATURE_SQL.values()}
-
-
 def features_from_sql(obj: Any) -> dict[str, Any]:
     """Ligne ORM → dict FEATURE_COLUMNS prêt pour CatBoost (flags en int)."""
     out = {name: getattr(obj, col) for name, col in FEATURE_SQL.items()}
