@@ -98,3 +98,45 @@ def test_main_regression_returns_one(tmp_path, monkeypatch):
     monkeypatch.setattr(sv, "DEFAULT_SCORES_PATH", scores)
     monkeypatch.setattr(sv, "DEFAULT_BASELINE_PATH", baseline)
     assert sv.main() == 1
+
+
+def test_validate_invalid_structures_fail():
+    # Structures malformées à chaque niveau : scores non-dict, targets non-dict,
+    # bloc cible non-dict, models non-dict.
+    for broken in (
+        None,
+        {"targets": []},
+        {"targets": {"energy": "x", "emissions": "x"}},
+        {"targets": {"energy": {"models": []}, "emissions": {"models": []}}},
+    ):
+        violations = validate_scores(broken, _scores())
+        assert len(violations) == 2
+        assert all("absents ou invalides" in v for v in violations)
+
+
+def test_validate_missing_baseline_fails():
+    violations = validate_scores(_scores(), {"targets": {}})
+    assert violations == [
+        "energy: baseline 'catboost' absente ou invalide",
+        "emissions: baseline 'catboost' absente ou invalide",
+    ]
+
+
+def test_validate_non_numeric_metric_fails():
+    cur = _scores()
+    cur["targets"]["energy"]["models"]["catboost"]["MedAPE_pct"] = True
+    cur["targets"]["emissions"]["models"]["catboost"]["R2"] = "0.2"
+    violations = validate_scores(cur, _scores())
+    assert "energy: métrique 'MedAPE_pct' manquante" in violations
+    assert "emissions: métrique 'R2' manquante" in violations
+
+
+def test_main_invalid_json_returns_one(tmp_path, monkeypatch, capsys):
+    scores = tmp_path / "scores.json"
+    baseline = tmp_path / "baseline.json"
+    scores.write_text("{pas du json", encoding="utf-8")
+    _write(baseline, _scores())
+    monkeypatch.setattr(sv, "DEFAULT_SCORES_PATH", scores)
+    monkeypatch.setattr(sv, "DEFAULT_BASELINE_PATH", baseline)
+    assert sv.main() == 1
+    assert "JSON invalide" in capsys.readouterr().out

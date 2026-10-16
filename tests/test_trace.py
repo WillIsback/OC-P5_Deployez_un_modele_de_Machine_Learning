@@ -150,3 +150,61 @@ def test_pool_timeout_in_route_returns_503(client, auth_headers, monkeypatch):
     r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
     assert r.status_code == 503
     assert r.json() == {"detail": "Base de données indisponible"}
+
+
+def test_finalize_failure_keeps_response(client, monkeypatch, caplog):
+    """Échec de la finalisation : la réponse part quand même, l'erreur est journalisée."""
+    from sqlalchemy.exc import DataError
+
+    from app.middleware import trace
+
+    def broken(*args, **kwargs):
+        raise DataError("UPDATE", {}, Exception("valeur refusée"))
+
+    monkeypatch.setattr(trace, "_finalize_request", broken)
+    r = client.get("/model/list")
+    assert r.status_code == 401
+    assert "Échec de la finalisation de la trace" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ({}, None),
+        ({"client": ("pas-une-ip", 1)}, None),
+        ({"client": ("::1", 1)}, "::1"),
+    ],
+)
+def test_client_ip(scope, expected):
+    from app.middleware.trace import _client_ip
+
+    assert _client_ip(scope) == expected
+
+
+def test_buffer_body_replays_then_delegates():
+    """Corps en plusieurs morceaux, puis déconnexion : rejoué puis délégué."""
+    import asyncio
+
+    from app.middleware.trace import _buffer_body
+
+    incoming = [
+        {"type": "http.request", "body": b"ab", "more_body": True},
+        {"type": "http.disconnect"},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive():
+        return incoming.pop(0)
+
+    async def scenario():
+        body, replay = await _buffer_body(receive)
+        replayed = [await replay(), await replay(), await replay()]
+        return body, replayed
+
+    body, replayed = asyncio.run(scenario())
+    assert body == b"ab"
+    assert [m["type"] for m in replayed] == [
+        "http.request",
+        "http.disconnect",
+        "http.disconnect",
+    ]

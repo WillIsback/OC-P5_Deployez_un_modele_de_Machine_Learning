@@ -35,6 +35,11 @@ omit = [
     "app/db/migrations/*",
 ]
 
+[tool.coverage.report]
+# Points d'entrée CLI : la logique est dans main(), testée directement.
+exclude_also = ['if __name__ == .__main__.:']
+fail_under = 98
+
 [tool.pytest.ini_options]
 markers = [
     "db: nécessite un PostgreSQL de test (TEST_DATABASE_ADMIN_URL)",

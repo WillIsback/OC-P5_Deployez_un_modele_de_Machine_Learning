@@ -46,6 +46,13 @@ def test_prepare_dataset_shapes_and_targets():
         assert pd.api.types.is_string_dtype(X[col])
 
 
+def test_prepare_dataset_rejects_missing_feature():
+    # Colonne constante : supprimée par build_clean (nunique > 1).
+    df = make_synth(40).assign(NumberofFloors=3)
+    with pytest.raises(ValueError, match="NumberofFloors"):
+        dp.prepare_dataset(df)
+
+
 def test_prepare_catboost_fills_missing_categoricals():
     df = make_synth(40)
     df.loc[0, "SecondLargestPropertyUseType"] = np.nan
@@ -349,6 +356,106 @@ def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
     assert set(metrics) == set(dp.TARGETS)
     for target in dp.TARGETS:
         assert set(metrics[target]["models"]) == {"catboost"}
+
+
+TINY_GRID = {
+    "iterations": [60],
+    "learning_rate": [0.1],
+    "depth": [4],
+    "l2_leaf_reg": [3.0],
+}
+
+
+def test_pipeline_requires_a_source():
+    with pytest.raises(ValueError, match="Fournir"):
+        TrainPipeline()
+
+
+def test_pipeline_reads_csv_path(tmp_path):
+    csv = tmp_path / "seattle.csv"
+    make_synth(20).to_csv(csv, index=False)
+    assert len(TrainPipeline(csv_path=csv).df_raw) == 20
+    with pytest.raises(FileNotFoundError, match="Dataset introuvable"):
+        TrainPipeline(csv_path=tmp_path / "absent.csv")
+
+
+def test_pipeline_split_rejects_too_small_dataset(monkeypatch):
+    clean = dp.build_clean(make_synth(40))
+    monkeypatch.setattr(dp, "build_clean", lambda df: clean.iloc[:1])
+    pipe = TrainPipeline(df_raw=make_synth(40))
+    with pytest.raises(ValueError, match="trop petit"):
+        pipe.split()
+
+
+def test_pipeline_steps_out_of_order_raise(tmp_path):
+    pipe = TrainPipeline(df_raw=make_synth(60), output_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="split\\(\\) avant"):
+        pipe.feature_engineering()
+    with pytest.raises(RuntimeError, match="cross_validate"):
+        pipe.pre_tune()
+    pipe.split()
+    with pytest.raises(RuntimeError, match="feature_engineering"):
+        pipe.fine_tune()
+    pipe.feature_engineering()
+    with pytest.raises(RuntimeError, match="pre_tune"):
+        pipe.fine_tune()
+    pipe.pre_tuned_grid = {"energy": TINY_GRID}
+    with pytest.raises(RuntimeError, match="'emissions'"):
+        pipe.fine_tune()
+    pipe.best_params = {}  # fine_tune a déjà réglé "energy" avant d'échouer
+    with pytest.raises(RuntimeError, match="fine_tune"):
+        pipe.train_final()
+    with pytest.raises(RuntimeError, match="train_final"):
+        pipe.evaluate()
+
+
+def test_pipeline_run_propagates_error_without_kumo(tmp_path, monkeypatch):
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(pl, "COARSE_GRID", TINY_GRID)
+
+    def broken(self, kumo_predictor=None):
+        raise RuntimeError("évaluation cassée")
+
+    monkeypatch.setattr(TrainPipeline, "evaluate", broken)
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}",
+    )
+    with pytest.raises(RuntimeError, match="évaluation cassée"):
+        pipe.run(include_kumo=False)
+
+
+def test_pipeline_run_logs_kumo_runs(tmp_path, monkeypatch):
+    from mlflow.tracking import MlflowClient
+
+    from app.core import kumo_service
+    from app.training import pipeline as pl
+
+    monkeypatch.setattr(pl, "COARSE_GRID", TINY_GRID)
+    monkeypatch.setattr(
+        kumo_service, "predict_batch", lambda X, target: np.full(len(X), 1000.0)
+    )
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    pipe = TrainPipeline(
+        df_raw=make_synth(140),
+        cv_splits=2,
+        output_dir=tmp_path,
+        mlflow_tracking_uri=tracking_uri,
+    )
+    metrics = pipe.run(include_kumo=True)
+    for target in dp.TARGETS:
+        assert set(metrics[target]["models"]) == {"catboost", "kumo"}
+
+    client = MlflowClient(tracking_uri=tracking_uri)
+    experiment = client.get_experiment_by_name("seattle-energy")
+    names = {
+        r.data.tags.get("mlflow.runName")
+        for r in client.search_runs([experiment.experiment_id])
+    }
+    assert {"kumo-energy", "kumo-emissions"} <= names
 
 
 def test_filter_scope_excludes_only_residential():

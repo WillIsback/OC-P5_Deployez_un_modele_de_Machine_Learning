@@ -75,6 +75,13 @@ def test_coerce_row_by_column_type():
     assert identity == {"zip_code": "98101", "address": None}
 
 
+def test_coerce_keeps_other_types_unchanged():
+    from sqlalchemy import DateTime
+
+    payload = {"a": [1, 2]}
+    assert mapping._coerce(payload, DateTime()) is payload
+
+
 def test_features_roundtrip():
     features = {
         "BuildingType": "NonResidential",

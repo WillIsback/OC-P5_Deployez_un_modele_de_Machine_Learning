@@ -281,6 +281,23 @@ def test_compare_kumo_failure_503_keeps_catboost(
         assert s.scalar(select(func.count()).select_from(Prediction)) == 1
 
 
+def test_predict_database_error_returns_503(
+    client, auth_headers, demo_models, buildings, monkeypatch
+):
+    """Erreur SQL pendant le modèle : relayée au handler « base indisponible »."""
+    from sqlalchemy.exc import OperationalError
+
+    from app.core import prediction_service
+
+    def db_down(*args, **kwargs):
+        raise OperationalError("INSERT", {}, Exception("connexion perdue"))
+
+    monkeypatch.setattr(prediction_service, "run_model", db_down)
+    r = client.post("/model/predict", json={"building_id": 1}, headers=auth_headers)
+    assert r.status_code == 503
+    assert r.json() == {"detail": "Base de données indisponible"}
+
+
 def test_building_without_year_rows_422(client, db, auth_headers, buildings):
     with db() as s:
         add_building(s, 3)

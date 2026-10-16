@@ -43,7 +43,6 @@ def main(argv: list[str] | None = None) -> None:
             data = load_training_data(session)
         except RuntimeError as exc:
             parser.error(str(exc))
-            return
     pipe = TrainPipeline(
         training_data=data, output_dir=output_dir, cv_splits=args.cv_splits
     )

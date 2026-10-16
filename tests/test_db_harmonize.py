@@ -121,6 +121,46 @@ def test_download_filters_year(tmp_path, monkeypatch):
     assert len(pd.read_csv(path)) == 7
 
 
+def test_download_keeps_existing_file(tmp_path, monkeypatch):
+    path = tmp_path / "2018.csv"
+    path.write_text("deja la", encoding="utf-8")
+
+    def no_network(*a, **k):
+        raise AssertionError("aucun téléchargement attendu")
+
+    monkeypatch.setattr(harmonize.urllib.request, "urlopen", no_network)
+    assert harmonize.download_open_data_year(2018, path) == path
+    assert path.read_text(encoding="utf-8") == "deja la"
+
+
+def test_download_network_error_is_explicit(tmp_path, monkeypatch):
+    def offline(*a, **k):
+        raise OSError("réseau coupé")
+
+    monkeypatch.setattr(harmonize.urllib.request, "urlopen", offline)
+    with pytest.raises(RuntimeError, match="Échec du téléchargement"):
+        harmonize.download_open_data_year(2018, tmp_path / "2018.csv")
+
+
+def test_download_year_absent_from_export(tmp_path, monkeypatch):
+    export = make_open_data(6, 2017)
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return export.to_csv(index=False).encode()
+
+    monkeypatch.setattr(harmonize.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    with pytest.raises(RuntimeError, match="Aucune ligne 2019"):
+        harmonize.download_open_data_year(2019, tmp_path / "2019.csv")
+    assert not (tmp_path / "2019.csv").exists()
+
+
 @pytest.mark.db
 def test_ingest_open_data_reuses_2016_building_type(db):
     ref = make_synth(6)

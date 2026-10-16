@@ -6,7 +6,6 @@ import functools
 import json
 import logging
 import os
-import random
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -99,16 +98,6 @@ def load_json(path: str | os.PathLike[str]) -> Any:
     """Lit un fichier JSON UTF-8."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
-
-
-def set_seed(seed: int = 42) -> None:
-    """Fixe les graines ``random`` et ``numpy``.
-
-    ``PYTHONHASHSEED`` n'est pas modifiable à chaud : il doit être défini
-    avant le démarrage de l'interpréteur pour réellement fixer le hash.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
 
 
 def metrics_reelles(y_true: Any, y_pred: Any) -> dict[str, float]:

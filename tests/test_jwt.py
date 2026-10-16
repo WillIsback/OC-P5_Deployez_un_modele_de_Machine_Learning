@@ -88,3 +88,18 @@ def test_missing_secret_key_raises_explicit_error(monkeypatch):
         create_access_token({"sub": "1"})
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         security.decode_token("x.y.z")
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        (None, None),
+        ("   ", None),
+        ("Bearer abc", "abc"),
+        ("token  abc ", "abc"),
+        ("Bearer", "Bearer"),
+        ("abc", "abc"),
+    ],
+)
+def test_extract_token_tolerant_parser(header, expected):
+    assert security._extract_token(None, header) == expected

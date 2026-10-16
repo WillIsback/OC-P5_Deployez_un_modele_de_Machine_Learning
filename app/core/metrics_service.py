@@ -29,11 +29,3 @@ def load_metrics() -> dict:
 
 def get_metrics() -> dict:
     return load_metrics()
-
-
-def is_available() -> bool:
-    try:
-        load_metrics()
-        return True
-    except Exception:  # noqa: BLE001
-        return False
