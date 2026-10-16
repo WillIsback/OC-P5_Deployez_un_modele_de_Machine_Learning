@@ -102,6 +102,10 @@ def _to_table(df: pd.DataFrame):
         d[col] = d[col].astype(float)
 
     d = d[FEATURE_COLUMNS]
+    # Une valeur manquante (ex. GFA d'un 2e usage absent) laisse la colonne en
+    # dtype object, refusé par sdm : None -> NaN.
+    numeric = [c for c in FEATURE_COLUMNS if c not in CAT_FEATURES]
+    d[numeric] = d[numeric].apply(pd.to_numeric).astype(float)
     return sdm.TableTensor.from_pandas(
         df=d,
         stypes=sdm.infer_stypes(d),
@@ -152,8 +156,7 @@ def predict_batch(X, target: str) -> np.ndarray:
     if getattr(X, "ndim", 2) != 2:
         raise ValueError("predict_batch attend une matrice 2-D de features.")
     if not isinstance(X, pd.DataFrame):
-        # Une matrice hétérogène arrive en dtype object, refusé par sdm.
-        X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS).infer_objects()
+        X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS)
     return _predict_dataframe(X, target)
 
 

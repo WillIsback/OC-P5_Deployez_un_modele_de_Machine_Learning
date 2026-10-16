@@ -106,3 +106,14 @@ def test_is_available_false_when_load_fails(monkeypatch):
 
     monkeypatch.setattr(kumo_service, "load_model", boom)
     assert kumo_service.is_available() is False
+
+
+def test_predict_batch_accepts_missing_secondary_gfa():
+    """Une ligne sans 2e/3e usage (GFA à None, cas de 83 % des bâtiments 2019)."""
+    data = SAMPLE_INPUT.model_dump()
+    data["PropertyGFABuilding(s)"] = data.pop("PropertyGFABuilding")
+    data["SecondLargestPropertyUseTypeGFA"] = None
+    data["ThirdLargestPropertyUseTypeGFA"] = None
+    preds = kumo_service.predict_batch(pd.DataFrame([data])[FEATURE_COLUMNS], "energy")
+    assert preds.shape == (1,)
+    assert np.isfinite(preds[0])
