@@ -78,3 +78,31 @@ def test_predict_batch_distinct_rows():
 def test_predict_batch_rejects_1d():
     with pytest.raises(ValueError):
         kumo_service.predict_batch(np.array([1.0, 2.0, 3.0]), "energy")
+
+
+def test_unknown_target_rejected():
+    from app.core._kumo_context import build_context_df
+
+    with pytest.raises(KeyError):
+        build_context_df("water")
+    with pytest.raises(KeyError):
+        kumo_service._context_table("water")
+    with pytest.raises(KeyError):
+        kumo_service.predict_batch(pd.DataFrame(columns=FEATURE_COLUMNS), "water")
+
+
+def test_predict_batch_accepts_array():
+    data = SAMPLE_INPUT.model_dump()
+    data["PropertyGFABuilding(s)"] = data.pop("PropertyGFABuilding")
+    X = pd.DataFrame([data])[FEATURE_COLUMNS].to_numpy(dtype=object)
+    preds = kumo_service.predict_batch(X, "energy")
+    assert preds.shape == (1,)
+    assert preds[0] > 0
+
+
+def test_is_available_false_when_load_fails(monkeypatch):
+    def boom():
+        raise ImportError("sdm absent")
+
+    monkeypatch.setattr(kumo_service, "load_model", boom)
+    assert kumo_service.is_available() is False

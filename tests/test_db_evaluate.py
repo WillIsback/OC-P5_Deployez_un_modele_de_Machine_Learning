@@ -61,3 +61,18 @@ def test_evaluate_excludes_aberrant_building(db, demo_models):
         metrics = evaluate.evaluate_years(s, [2018])
     # Ligne 4 non conforme + bâtiment 0 aberrant.
     assert (metrics["n_excluded"] == 2).all()
+
+
+def test_evaluate_main_without_data(db, demo_models, monkeypatch, capsys):
+    monkeypatch.setattr(db_session, "owner_session_factory", lambda: db)
+    evaluate.main(["--years", "2019"])
+    assert "aucune donnée de production" in capsys.readouterr().out
+
+
+def test_evaluate_skips_target_without_positive_actuals(db, demo_models):
+    df = make_synth(40).assign(DataYear=2018)
+    df["TotalGHGEmissions"] = 0.0
+    with db() as s:
+        ingest.ingest_frame(s, df, year=2018)
+        metrics = evaluate.evaluate_years(s, [2018])
+    assert set(metrics["target"]) == {"energy"}

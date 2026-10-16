@@ -152,7 +152,8 @@ def predict_batch(X, target: str) -> np.ndarray:
     if getattr(X, "ndim", 2) != 2:
         raise ValueError("predict_batch attend une matrice 2-D de features.")
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS)
+        # Une matrice hétérogène arrive en dtype object, refusé par sdm.
+        X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS).infer_objects()
     return _predict_dataframe(X, target)
 
 

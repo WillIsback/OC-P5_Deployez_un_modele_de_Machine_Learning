@@ -76,6 +76,30 @@ def test_ingest_main(db, tmp_path, monkeypatch):
         assert _count(s, BuildingYear) == 11
 
 
+@pytest.mark.parametrize("year", [2016, 2018])
+def test_ingest_main_download_dispatch(tmp_path, monkeypatch, year):
+    """--download : CSV du projet pour 2016, export open data sinon."""
+    calls = []
+    monkeypatch.setattr(
+        ingest.dp, "ensure_dataset", lambda p, download: calls.append(("2016", p))
+    )
+    monkeypatch.setattr(
+        ingest.harmonize,
+        "download_open_data_year",
+        lambda y, p: calls.append((str(y), p)),
+    )
+    csv = tmp_path / "absent.csv"
+    with pytest.raises(SystemExit):
+        ingest.main(["--year", str(year), "--csv", str(csv), "--download"])
+    assert calls == [(str(year), csv)]
+
+
+def test_ingest_main_missing_csv(tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        ingest.main(["--year", "2016", "--csv", str(tmp_path / "absent.csv")])
+    assert "CSV introuvable" in capsys.readouterr().err
+
+
 @pytest.mark.db
 def test_out_of_scope_building_kept_without_year_row(db):
     with db() as s:

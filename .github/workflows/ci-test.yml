@@ -93,7 +93,7 @@ jobs:
           # Dans un rapport Cobertura, l'élément racine est <coverage> lui-même.
           root = tree.getroot()
           total = float(root.attrib["line-rate"]) * 100
-          threshold = 70.0
+          threshold = 98.0
           if total < threshold:
               print(f"❌ Couverture globale : {total:.1f}% — seuil minimal : {threshold}%")
               sys.exit(1)
@@ -106,9 +106,8 @@ jobs:
           if git diff --name-only origin/main...HEAD | grep -qE '\.py$'; then
             uv run --frozen --no-sync diff-cover coverage.xml \
               --compare-branch origin/main \
-              --fail-under=80 \
-              --diff-range-notation=... || true
-            echo "ℹ️  Le seuil incrémental est vérifié ci-dessus."
+              --fail-under=90 \
+              --diff-range-notation=...
           else
             echo "✅ Aucun fichier Python modifié dans ce diff."
           fi
