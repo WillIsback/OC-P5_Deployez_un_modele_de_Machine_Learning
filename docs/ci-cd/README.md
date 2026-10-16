@@ -51,7 +51,7 @@ graph TD
 | Workflow | Nom de job (check context) | Responsabilité |
 |----------|---------------------------|----------------|
 | `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, validation du titre de PR (regex Conventional Commits, pas commitlint), hadolint, actionlint, zizmor (voir ci-dessous), lockfile |
-| `ci-test.yml` | `ci-test` | Tests unitaires + couverture (service PostgreSQL), seuil global 70 % (bloquant), seuil incrémental 80 % (non bloquant), dry-run applicatif, matrice Python 3.12/3.13 |
+| `ci-test.yml` | `ci-test` | Tests unitaires + couverture (service PostgreSQL), seuil global 98 % (bloquant, `fail_under` dans `pyproject.toml`), seuil incrémental 90 % (bloquant), dry-run applicatif, matrice Python 3.12/3.13 |
 | `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)`, `Synthèse de sécurité` (pas de job `ci-security`) | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
 | `ci-traceability.yml` | `ci-traceability` | Référence issue obligatoire (R1/R3), type de PR valide, cohérence semver (Q7) |
@@ -65,7 +65,7 @@ graph TD
 
 - **Titre de PR** : l'étape « commitlint » est une simple regex sur le titre de la PR : `^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert)(\(.+\))?!?: .+`. Le type `style` n'y figure pas.
 - **zizmor** : l'étape exécute réellement `uvx zizmor@1.31.0 --min-severity high` sur `.github/workflows/`, uploade le SARIF et échoue sur toute trouvaille de sévérité « high ». Les `dangerous-triggers` justifiés (`workflow_run` de `ai-code-review.yml`) sont neutralisés dans `.github/zizmor.yml`.
-- **Couverture incrémentale** : `diff-cover --fail-under=80 … || true` → le résultat est affiché mais n'échoue jamais.
+- **Couverture** : seuil global 98 % (`fail_under`, aussi appliqué par `pytest --cov` en local) ; `diff-cover --fail-under=90` sur les lignes modifiées par rapport à `origin/main` fait échouer le job. Les blocs `if __name__ == "__main__":` sont exclus de la mesure.
 - **Dry-run release** (`ci-test`) : simulé — le script Python affiche un dernier tag codé en dur (`v0.0.1`) et ne lit ni les tags ni les commits. Seul le « dry-run applicatif » (import de `app.main`) teste réellement quelque chose.
 - **PostgreSQL** : `ci-test` démarre un service `postgres:17-alpine` et définit `REQUIRE_TEST_DB=1` : si la base est injoignable, les tests BDD échouent au lieu d'être ignorés.
 - **Matrice Python** : `ci-test` tourne sur 3.12 (borne minimale de `requires-python`) et 3.13.
