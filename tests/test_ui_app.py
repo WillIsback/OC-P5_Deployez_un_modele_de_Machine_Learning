@@ -236,3 +236,24 @@ def test_build_app_wires_events_without_warning():
     with warnings.catch_warnings():
         warnings.filterwarnings("error", category=UserWarning, module=r"gradio\.")
         ui.build_app(lambda: FakeClient())
+
+
+def test_select_building_error_banner():
+    client = FakeClient(fail={"select": ApiError(404, "Bâtiment 28 introuvable")})
+    error_md = ui.on_select(client, logged_state(), SimpleNamespace(row_value=[28]))[-1]
+    assert visible(error_md) and "Bâtiment 28 introuvable" in error_md["value"]
+
+
+def test_row_selection_is_wired_to_on_select():
+    """Le clic sur une ligne du tableau appelle on_select avec l'événement."""
+    demo = ui.build_app(lambda: FakeClient())
+    (select_row,) = [f.fn for f in demo.fns.values() if f.name == "select_row"]
+    out = select_row(logged_state(), SimpleNamespace(row_value=[28, "GRAHAM HILL"]))
+    assert out[0]["building"] == DETAIL
+
+
+def test_main_module_imports_without_launching():
+    import importlib
+
+    module = importlib.import_module("app.ui.__main__")
+    assert module.build_app is ui.build_app
