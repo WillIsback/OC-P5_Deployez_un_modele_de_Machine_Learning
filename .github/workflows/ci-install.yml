@@ -57,13 +57,32 @@ jobs:
         with:
           persist-credentials: false
 
+      # Dépendances modifiées (pyproject.toml, uv.lock, Dockerfile.base) : l'image
+      # de base publiée (…:base) ne les contient pas encore, base-image.yml ne la
+      # republie qu'après le merge. On la construit alors depuis ce checkout ; les
+      # deux parcours la reçoivent via P5_BASE_IMAGE (build-arg BASE_IMAGE).
+      - name: Image de base locale (dépendances modifiées)
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_REF" 2>/dev/null || true
+          if ! git cat-file -e "$BASE_REF^{commit}" 2>/dev/null \
+            || git diff --name-only "$BASE_REF" HEAD | grep -qE '^(pyproject\.toml|uv\.lock|Dockerfile\.base)$'; then
+            docker build -f Dockerfile.base -t p5-base:ci .
+            echo "P5_BASE_IMAGE=p5-base:ci" >> "$GITHUB_ENV"
+          else
+            echo "Dépendances inchangées : image de base publiée."
+          fi
+
       # Parcours utilisateur sur une PR ou un push : l'image publiée (latest) ne
       # contient pas encore le code testé, on la construit donc depuis ce checkout.
       # Le cron et le dispatch testent l'image réellement publiée sur GHCR.
       - name: Image locale (parcours utilisateur)
         if: matrix.path == 'user' && (github.event_name == 'pull_request' || github.event_name == 'push')
         run: |
-          docker build -t p5-energy:ci .
+          docker build ${P5_BASE_IMAGE:+--build-arg "BASE_IMAGE=$P5_BASE_IMAGE"} -t p5-energy:ci .
           {
             echo "P5_IMAGE=p5-energy:ci"
             echo "P5_PULL=0"

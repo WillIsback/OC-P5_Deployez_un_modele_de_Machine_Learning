@@ -10,7 +10,8 @@
 #
 # Étapes : configuration → image (pull ou build) → base PostgreSQL (create_db)
 # → ingestion des jeux 2016 et 2019 (téléchargés) → évaluation projetée 2019 →
-# API + Grafana → vérification (jeton, 3 bâtiments, prédiction, monitoring).
+# API + Grafana + interface → vérification (jeton, 3 bâtiments, prédiction,
+# monitoring, interface).
 # Relançable : .env et la base sont conservés.
 #
 # Variables :
@@ -19,7 +20,8 @@
 #   P5_REF       branche/tag des fichiers téléchargés      défaut : main
 #   P5_RAW_BASE  source des fichiers (CI : file://…)       défaut : raw.githubusercontent.com
 #   P5_PULL=0    ne pas tirer l'image (image locale, CI)
-#   API_PORT / DB_PORT / GRAFANA_PORT  ports hôte          défaut : 8080 / 5432 / 3000
+#   API_PORT / DB_PORT / GRAFANA_PORT / UI_PORT  ports hôte
+#                défaut : 8080 / 5432 / 3000 / 7860
 
 # Tout est dans main() : avec `curl | bash`, bash lit le script sur stdin ; le
 # corps est ainsi entièrement lu avant qu'une commande ne puisse consommer stdin.
@@ -31,12 +33,13 @@ main() {
   local raw="${P5_RAW_BASE:-https://raw.githubusercontent.com/$repo/${P5_REF:-main}}"
   local api="http://localhost:${API_PORT:-8080}"
   local grafana="http://localhost:${GRAFANA_PORT:-3000}"
+  local ui="http://localhost:${UI_PORT:-7860}"
   local mode=image
 
   case "${1:-}" in
     --source) mode=source ;;
     "") ;;
-    -h | --help) sed -n '2,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \{0,1\}//'; return 0 ;;
+    -h | --help) sed -n '2,24p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \{0,1\}//'; return 0 ;;
     *) die "option inconnue : $1 (seule --source est acceptée)" ;;
   esac
 
@@ -82,7 +85,10 @@ main() {
 
   step "Image de l'API"
   if [ "$mode" = source ]; then
-    docker compose --profile tools build --pull
+    # P5_BASE_IMAGE : image de base locale (dépendances modifiées), à ne pas tirer.
+    local pull=(--pull)
+    [ -z "${P5_BASE_IMAGE:-}" ] || pull=()
+    docker compose --profile tools build "${pull[@]}"
   elif [ "${P5_PULL:-1}" != 0 ]; then
     docker compose --profile tools pull --quiet
   fi
@@ -104,8 +110,8 @@ main() {
   step "Évaluation projetée 2019 (prédictions par lot, alimente le tableau « Modèle »)"
   docker compose run --rm -T tools python -m app.db.evaluate --years 2019
 
-  step "API et monitoring"
-  docker compose up -d --wait api grafana
+  step "API, monitoring et interface"
+  docker compose up -d --wait api grafana ui
 
   step "Vérification"
   local token ids id res
@@ -131,10 +137,13 @@ main() {
   curl -fsS -u "admin:$pw" "$grafana/api/datasources/uid/p5-postgres/health" \
     | grep -q '"status":"OK"' || die "datasource PostgreSQL de Grafana en échec (rôle p5_grafana ?)"
   info "monitoring : Grafana OK, datasource PostgreSQL OK"
+  curl -fsS "$ui/" | grep -q "Consommation énergétique" || die "interface injoignable sur $ui"
+  info "interface : OK"
 
   cat <<EOF
 
-$(printf '\033[1;32m')✅ API prête sur $api$(printf '\033[0m')
+$(printf '\033[1;32m')✅ Interface de démonstration : $ui$(printf '\033[0m')
+   API                       : $api
    Documentation interactive : $api/docs
    Monitoring (Grafana)      : $grafana  (admin / GRAFANA_ADMIN_PASSWORD dans .env)
    Compte de démonstration   : johndoe / secret

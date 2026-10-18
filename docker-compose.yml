@@ -91,5 +91,26 @@ services:
       timeout: 5s
       retries: 20
 
+  # Interface de démonstration (Gradio) : même image que l'API, cliente HTTP de
+  # celle-ci (aucun accès à la base ni au modèle, ni SECRET_KEY) ; chaque action
+  # passe par le JWT et la traçabilité, donc visible dans Grafana.
+  ui:
+    image: ${P5_IMAGE:-ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:latest}
+    command: ["python", "-m", "app.ui"]
+    environment:
+      P5_API_URL: http://api:8080
+      # Écoute sur toutes les interfaces du conteneur (hors Docker : 127.0.0.1).
+      GRADIO_SERVER_NAME: 0.0.0.0
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${UI_PORT:-7860}:7860"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgdata:

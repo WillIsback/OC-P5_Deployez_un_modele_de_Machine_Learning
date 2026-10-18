@@ -1,16 +1,29 @@
 # Développement (chargé automatiquement par `docker compose` depuis un clone) :
 # image construite depuis les sources au lieu de l'image GHCR, et ./models monté
 # pour servir / produire les modèles du dépôt (réentraînement).
+
+# Build commun (api, tools, ui partagent l'image p5-energy:dev). P5_BASE_IMAGE :
+# image de base locale quand les dépendances viennent de changer (CI, ou avant
+# que base-image.yml ait republié …:base).
+x-build: &build
+  context: .
+  args:
+    BASE_IMAGE: ${P5_BASE_IMAGE:-ghcr.io/willisback/oc-p5_deployez_un_modele_de_machine_learning:base}
+
 services:
   api:
     image: p5-energy:dev
-    build: .
+    build: *build
     volumes:
       - ./models:/app/models:ro
 
   tools:
     image: p5-energy:dev
-    build: .
+    build: *build
     volumes:
       # Écriture : l'entraînement produit models/*.cbm, scores.json et version.json.
       - ./models:/app/models
+
+  ui:
+    image: p5-energy:dev
+    build: *build
