@@ -187,6 +187,8 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 | `MODEL_PATH_EMISSIONS` | Modèle servi pour les émissions | `models/emissions.cbm` |
 | `MODEL_VERSION_PATH` | Version servie | `models/version.json` |
 | `MODEL_METRICS_PATH` | Scores renvoyés par `GET /model/metrics` | `models/scores.json` |
+| `KUMO_CONTEXT_PATH` | Contexte zero-shot de Kumo (jeu d'entraînement exporté par `app.training`) | `models/kumo_context.csv` |
+| `KUMO_CONTEXT_SIZE` | Réduit le contexte Kumo à N lignes tirées au hasard (graine 42) ; la latence croît avec le contexte | toutes les lignes |
 | `TRAINING_YEAR` | Année d'entraînement (référence de l'ingestion) | `2016` |
 | `MLFLOW_TRACKING_URI` | Suivi MLflow | `sqlite:///mlflow.db` |
 | `MLFLOW_EXPERIMENT` | Expérience MLflow | `seattle-energy` |

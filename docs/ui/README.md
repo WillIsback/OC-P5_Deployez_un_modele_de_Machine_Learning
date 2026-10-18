@@ -17,7 +17,7 @@ Une interface web claire et épurée pour le parcours de démonstration : se con
 1. **Connexion** avec les identifiants de l'API. Le jeton est conservé en mémoire **côté serveur**, par onglet (`gr.State`) : il n'est ni envoyé au navigateur, ni écrit, ni journalisé. L'historique des exécutions de Gradio, qui enregistrerait les saisies (dont le mot de passe) dans le navigateur, est désactivé. La déconnexion oublie le jeton, efface le mot de passe et la fiche affichée.
 2. **Trouver un bâtiment** : recherche par nom ou adresse (2 caractères minimum), filtre par quartier, pages de 20. Seuls les bâtiments jamais vus par l'entraînement sont listés : ce sont les seuls prédictibles par identifiant.
 3. **Fiche** : un clic sur une ligne affiche l'identité, l'usage principal, l'année de construction et la surface ; la dernière année disponible est présélectionnée.
-4. **Prédire** : consommation (kBtu/an) et émissions (t CO2e/an) CatBoost, avec le numéro de la prédiction tracée en base. Avec « Comparer avec Kumo-Tabular », la prédiction zero-shot s'affiche en dessous ; le premier appel après un démarrage télécharge les poids de Kumo (~15 s).
+4. **Prédire** : consommation (kBtu/an) et émissions (t CO2e/an) CatBoost, avec le numéro de la prédiction tracée en base. Avec « Comparer avec Kumo-Tabular », la prédiction zero-shot s'affiche en dessous. Comptez environ 40 s sur CPU (Kumo relit ses 1 236 exemples d'entraînement à chaque cible ; `KUMO_CONTEXT_SIZE` réduit ce délai), plus le téléchargement des poids au premier appel.
 
 ![Prédiction](img/prediction.png)
 

@@ -28,7 +28,23 @@ uv run python -m app.training
 L'entraînement lit désormais les features et cibles dans PostgreSQL (`building_years`, `buildings.split` et `building_actuals`), et non plus le CSV. Le pipeline entraîne un CatBoost par cible (`SiteEnergyUse(kBtu)` et
 `TotalGHGEmissions`), évalue Kumo-Tabular en zero-shot sur le même test et
 logue les runs MLflow (`uv run mlflow ui --backend-store-uri "$MLFLOW_TRACKING_URI"`). Sorties : `models/<cible>.cbm`,
-`models/scores.json` et `models/version.json` (version servie, lue par l'API).
+`models/kumo_context.csv` (contexte de Kumo), `models/scores.json` et `models/version.json` (version servie, lue par l'API).
+
+## Kumo-Tabular en zero-shot
+
+Kumo-Tabular n'est jamais entraîné : il prédit par analogie avec des exemples étiquetés passés avec la requête (*in-context learning*), et l'ordre de grandeur de ses prédictions vient entièrement de ces exemples. Son contexte est donc **le jeu d'entraînement de CatBoost** (même split, aucun bâtiment de test), exporté par `train_final` dans `models/kumo_context.csv` et embarqué dans l'image. La comparaison des deux modèles sur le test est ainsi à armes égales.
+
+Scores sur le test (`models/scores.json`, 310 bâtiments jamais vus) :
+
+| Modèle | Énergie R² | MAE (kBtu) | MedAPE | Émissions R² | MAE (t CO2e) | MedAPE |
+|---|---|---|---|---|---|---|
+| CatBoost | 0,24 | 5,17 M | 35,0 % | 0,11 | 145,9 | 43,7 % |
+| Kumo, contexte synthétique (avant #68) | −0,07 | 8,96 M | 83,1 % | −1 829 | 44 276 | 90 059 % |
+| **Kumo, jeu d'entraînement (1 236 lignes)** | **0,45** | **4,71 M** | 35,1 % | **0,21** | **136,6** | 48,3 % |
+
+Kumo fait mieux que CatBoost sur les grands bâtiments (R², MAE) et à peu près aussi bien en erreur relative médiane (MedAPE), un peu moins bien sur les émissions. Latence sur CPU : environ 20 s par cible avec le contexte complet (8 threads), 6 s avec `KUMO_CONTEXT_SIZE=300` (4 threads) (R² mesuré 0,49 en énergie, 0,23 en émissions), proportionnelle au contexte ; paralléliser les deux cibles n'apporte rien, PyTorch occupe déjà tous les cœurs.
+
+L'ancien contexte synthétique fixait les émissions à 0,1 × l'énergie, contre environ 0,00002 t CO2e par kBtu à Seattle : Kumo surestimait les émissions d'environ 500 fois.
 
 ## Suivi d'expérimentation avec MLflow
 
