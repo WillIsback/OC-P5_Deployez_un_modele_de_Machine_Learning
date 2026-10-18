@@ -28,3 +28,12 @@ def test_version_from_environment(monkeypatch):
 def test_version_defaults_to_dev(monkeypatch):
     monkeypatch.delenv("APP_VERSION", raising=False)
     assert importlib.reload(app.main).app.version == "dev"
+
+
+def test_request_examples_are_valid():
+    """Les exemples affichés par Swagger passent la validation."""
+    from app.schemas.api import BuildingPredictionRequest, EnergyPredictionRequest
+
+    for model in (EnergyPredictionRequest, BuildingPredictionRequest):
+        (example,) = model.model_json_schema()["examples"]
+        model.model_validate(example)

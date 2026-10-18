@@ -146,6 +146,22 @@ done
 
 Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md`](docs/db/README.md) (section « Années de production 2017–2019 »).
 
+### Stockage et gestion des données
+
+- **Source** : CSV 2016 du projet et open data de Seattle (2017–2019), téléchargés dans `data/` (non versionné), harmonisés vers le schéma 2016, nettoyés et transformés en 17 features par `app.db.ingest`. L'ingestion est idempotente (upsert sur bâtiment et année).
+- **Stockage** : identité des bâtiments et split dans `buildings`, features par année dans `building_years`, cibles réelles isolées dans `building_actuals`. La base est la source de vérité de l'entraînement, qui enregistre chaque version dans `ml_models` (lien vers le run MLflow, base `mlflow` séparée).
+- **Traçabilité** : chaque appel API écrit une ligne `api_requests` (utilisateur, route, code, durée, corps JSONB masqués) ; chaque prédiction écrit une ligne `predictions` liée à la requête, à l'année de features et à la version du modèle. Aucune prédiction n'est servie si la trace ne peut pas être écrite (503).
+- **Rétention** : les traces sont conservées sans purge automatique ; leur volume reste faible (une ligne par appel, index sur `(user_id, created_at)` et `(path, created_at)`).
+
+### Besoins analytiques
+
+Deux tableaux de bord Grafana provisionnés lisent la base avec le rôle `p5_grafana` ([`docs/monitoring/README.md`](docs/monitoring/README.md)) :
+
+- **API** : trafic, taux 4xx et 5xx, latence p95 et par route, utilisateurs authentifiés, dernières erreurs ;
+- **Modèle** : prédictions par modèle et par origine, distribution des consommations prédites, prédit contre réel et erreur médiane par année sur l'évaluation projetée (`v_projected_evaluation`).
+
+Des requêtes SQL d'analyse sont données dans [`docs/db/README.md`](docs/db/README.md#5-exemples-de-requêtes-sql).
+
 ### Variables d'environnement
 
 Lues depuis `.env` (copié de [`.example.env`](.example.env), ou généré par le Quickstart utilisateurs). Seules celles marquées ⚠️ sont obligatoires.
@@ -222,6 +238,21 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 ---
 
 ## 🔒 Sécurité
+
+### Authentification et gestion des accès
+
+- **Jeton JWT Bearer** (OAuth2 *password flow*) : `POST /token` avec `username` / `password` renvoie un jeton HS256 valable 30 minutes, signé par `SECRET_KEY`. Toutes les autres routes l'exigent (`Authorization: Bearer <jeton>`, bouton *Authorize* de Swagger). Le claim `sub` porte l'identifiant de l'utilisateur, rechargé en base à chaque appel : un compte désactivé ou supprimé est refusé même avec un jeton encore valide.
+- **Mots de passe** hachés en **Argon2id** (pwdlib) dans la table `users`, jamais stockés ni journalisés en clair : `password`, `access_token` et `client_secret` sont remplacés par `"***"` avant écriture dans `api_requests`.
+- **Moindre privilège en base** : quatre rôles PostgreSQL. L'API utilise `p5_api`, qui lit le dataset mais pas les cibles réelles (`building_actuals`) et n'écrit que les traces et prédictions. `p5_owner` (schéma, ingestion, entraînement), `p5_mlflow` et `p5_grafana` (lecture seule, colonne par colonne) complètent le dispositif ([détail](docs/db/README.md#3-rôles-et-sécurité)).
+- **Comptes de démonstration** (`johndoe` / `alice`) créés uniquement si `P5_SEED_DEMO_USERS=1`, jamais en production.
+
+### Secrets
+
+- `.env` est ignoré par Git ; `.example.env` ne contient que des valeurs factices. Le Quickstart utilisateurs génère tous les mots de passe et la `SECRET_KEY` aléatoirement.
+- Le service `api` ne reçoit que `SECRET_KEY` et `DATABASE_URL` ; seul le service `tools` reçoit les identifiants administrateur et propriétaire.
+- Côté CI, les secrets vivent dans GitHub Secrets ; le `GITHUB_TOKEN` a des permissions minimales par job. Environnements dev / test / prod : voir [`docs/ci-cd/README.md`](docs/ci-cd/README.md#-environnements).
+
+### Pipeline
 
 - Analyse **SAST** (CodeQL) sur chaque PR
 - Scan des dépendances (**Trivy + Dependency Review**)

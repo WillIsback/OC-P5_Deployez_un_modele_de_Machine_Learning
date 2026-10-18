@@ -60,7 +60,33 @@ class Model(BaseModel):
 class EnergyPredictionRequest(BaseModel):
     """Input features for the Seattle building energy consumption model."""
 
-    model_config = ConfigDict(extra="forbid")
+    # L'exemple pré-remplit « Try it out » dans Swagger : un bureau réaliste.
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "BuildingType": "NonResidential",
+                    "PrimaryPropertyType": "Small- and Mid-Sized Office",
+                    "Neighborhood": "BALLARD",
+                    "Latitude": 47.62,
+                    "Longitude": -122.35,
+                    "YearBuilt": 1990,
+                    "NumberofBuildings": 1,
+                    "NumberofFloors": 4,
+                    "PropertyGFAParking": 5000,
+                    "PropertyGFABuilding": 15000,
+                    "LargestPropertyUseType": "Office",
+                    "SecondLargestPropertyUseType": "Retail Store",
+                    "SecondLargestPropertyUseTypeGFA": 3000,
+                    "ThirdLargestPropertyUseType": "Parking",
+                    "ThirdLargestPropertyUseTypeGFA": 2000,
+                    "Has_NaturalGas": True,
+                    "Has_Steam": False,
+                }
+            ]
+        },
+    )
 
     BuildingType: Category
     PrimaryPropertyType: Category
@@ -84,7 +110,11 @@ class EnergyPredictionRequest(BaseModel):
 class BuildingPredictionRequest(BaseModel):
     """Prédiction d'un bâtiment connu ; année la plus récente si absente."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Bâtiment 28 : jamais vu par l'entraînement, présent après le Quickstart.
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{"building_id": 28}]},
+    )
 
     building_id: NonNegativeInt  # INTEGER
     data_year: NonNegativeSmallInt | None = None  # SMALLINT
