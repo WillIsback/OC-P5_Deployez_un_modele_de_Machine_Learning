@@ -119,3 +119,8 @@ def test_error_without_json_detail(body):
     with pytest.raises(ApiError) as err:
         client.get_building("jeton", 1)
     assert (err.value.status, str(err.value)) == (502, "Requête invalide")
+
+
+def test_default_client_waits_for_kumo_comparison():
+    """La comparaison Kumo (contexte complet) prend ~40 s par appel sur CPU."""
+    assert default_client().http.timeout.read == 120

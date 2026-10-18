@@ -8,7 +8,7 @@ from synth import EXAMPLE_FEATURES, add_building, add_year
 
 from app.core import kumo_service, model_service
 from app.db.models import ApiRequest, MlModel, Prediction, User
-from app.db.registry import CATBOOST_NAME
+from app.db.registry import CATBOOST_NAME, KUMO_NAME
 
 pytestmark = pytest.mark.db
 
@@ -295,6 +295,33 @@ def test_compare_kumo_failure_503_keeps_catboost(
     assert r.json()["detail"] == "Modèle Kumo-Tabular indisponible"
     with db() as s:
         assert s.scalar(select(func.count()).select_from(Prediction)) == 1
+
+
+def test_compare_predicts_kumo_before_opening_a_transaction(
+    client, auth_headers, demo_models, buildings, monkeypatch
+):
+    """Kumo prend ~20 s par cible : pas de connexion tenue pendant l'inférence."""
+    from app.core import prediction_service
+
+    calls = []
+    real_active = prediction_service.active_model
+
+    def fake_predict(X, target):
+        calls.append("predict")
+        return [1000.0]
+
+    def spy_active(session, name):
+        if name == KUMO_NAME:
+            calls.append("active_model")
+        return real_active(session, name)
+
+    monkeypatch.setattr(kumo_service, "predict_batch", fake_predict)
+    monkeypatch.setattr(prediction_service, "active_model", spy_active)
+    r = client.post(
+        "/model/predict/compare", json={"building_id": 1}, headers=auth_headers
+    )
+    assert r.status_code == 200
+    assert calls == ["predict", "predict", "active_model"]
 
 
 def test_predict_database_error_returns_503(

@@ -21,6 +21,7 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:?définir SECRET_KEY dans .env}
       DATABASE_URL: postgresql+psycopg://p5_api:${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}@db:5432/p5
+      KUMO_CONTEXT_SIZE: ${KUMO_CONTEXT_SIZE:-}
     depends_on:
       db:
         condition: service_healthy

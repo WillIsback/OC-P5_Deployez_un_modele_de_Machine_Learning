@@ -170,6 +170,7 @@ models/*
 !models/scores_baseline.json
 !models/energy.cbm
 !models/emissions.cbm
+!models/kumo_context.csv
 catboost_info/
 mlflow.db
 mlruns/

@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core import kumo_service
+from app.core import _kumo_context, kumo_service
 from app.schemas.api import FEATURE_COLUMNS, TARGETS, EnergyPredictionRequest
 
 SAMPLE_INPUT = EnergyPredictionRequest(
@@ -80,11 +80,56 @@ def test_predict_batch_rejects_1d():
         kumo_service.predict_batch(np.array([1.0, 2.0, 3.0]), "energy")
 
 
-def test_unknown_target_rejected():
-    from app.core._kumo_context import build_context_df
+def test_explicit_context_is_not_cached(tmp_path):
+    path = tmp_path / "ctx.csv"
+    pd.read_csv(_kumo_context.DEFAULT_CONTEXT_PATH).iloc[:20].to_csv(path, index=False)
+    cached = dict(kumo_service._context_tables)
+    first = kumo_service._context_table("energy", path)
+    assert first is not kumo_service._context_table("energy", path)
+    assert kumo_service._context_tables == cached
 
+
+def test_real_context_gives_realistic_magnitudes(tmp_path):
+    """Non-régression #68 : un contexte synthétique donnait des émissions ×500."""
+    full = pd.read_csv(_kumo_context.DEFAULT_CONTEXT_PATH)
+    path = tmp_path / "ctx.csv"
+    full.iloc[:200].to_csv(path, index=False)
+    query = full.iloc[200:230]  # bâtiments absents du contexte
+    for target, meta in TARGETS.items():
+        pred = kumo_service.predict_batch(
+            query[FEATURE_COLUMNS], target, context_path=path
+        )
+        ratio = np.median(pred / query[meta["column"]].to_numpy())
+        assert 0.2 < ratio < 5, f"{target} : prédit/réel médian = {ratio:.2f}"
+
+
+def test_served_context_gives_realistic_magnitudes(tmp_path, monkeypatch):
+    """Même contrôle par le chemin servi (KUMO_CONTEXT_PATH, cache, taille)."""
+    full = pd.read_csv(_kumo_context.DEFAULT_CONTEXT_PATH)
+    path = tmp_path / "ctx.csv"
+    full.iloc[:200].to_csv(path, index=False)
+    monkeypatch.setenv("KUMO_CONTEXT_PATH", str(path))
+    monkeypatch.setattr(kumo_service, "_context_tables", {})
+    query = full.iloc[200:230]
+    for target, meta in TARGETS.items():
+        pred = kumo_service.predict_batch(query[FEATURE_COLUMNS], target)
+        ratio = np.median(pred / query[meta["column"]].to_numpy())
+        assert 0.2 < ratio < 5, f"{target} : prédit/réel médian = {ratio:.2f}"
+    assert set(kumo_service._context_tables) == set(TARGETS)
+
+
+def test_missing_context_file_raises(monkeypatch, tmp_path):
+    with pytest.raises(FileNotFoundError):
+        kumo_service.predict_batch(
+            pd.DataFrame(columns=FEATURE_COLUMNS),
+            "energy",
+            context_path=tmp_path / "absent.csv",
+        )
+
+
+def test_unknown_target_rejected():
     with pytest.raises(KeyError):
-        build_context_df("water")
+        _kumo_context.build_context_df("water")
     with pytest.raises(KeyError):
         kumo_service._context_table("water")
     with pytest.raises(KeyError):

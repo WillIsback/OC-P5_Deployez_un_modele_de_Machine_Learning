@@ -23,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # Avant tout import de l'app : clé de signature factice (aucune clé de repli
 # dans le code).
 os.environ.setdefault("SECRET_KEY", "cle-de-test-non-secrete-de-32-octets-minimum")
+# Contexte Kumo réduit : la latence croît avec le nombre de lignes.
+os.environ.setdefault("KUMO_CONTEXT_SIZE", "50")
 
 from app.core import metrics_service, model_service
 from app.db import create_db

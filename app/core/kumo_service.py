@@ -1,8 +1,9 @@
-"""Kumo-Tabular zero-shot (few-shot) multi-cible.
+"""Kumo-Tabular zero-shot multi-cible.
 
 NVIDIA Kumo-Tabular est un modèle tabulaire fondation utilisé en *in-context
-learning* : un petit jeu d'exemples de référence (contexte) est fourni au
-modèle en même temps que la requête, sans entraînement par jeu de données.
+learning* : des exemples étiquetés (le contexte, ici le jeu d'entraînement de
+CatBoost, cf. ``_kumo_context``) sont fournis au modèle avec la requête, sans
+modifier ses poids.
 
 Un **modèle partagé** est chargé une seule fois ; chaque cible dispose de sa
 propre table de contexte (mise en cache), et la prédiction peut se faire par
@@ -60,25 +61,35 @@ def load_model():
     return _model
 
 
-def _context_table(target: str):
-    """Table de contexte :class:`sdm.TableTensor` de ``target`` (cache)."""
+def _build_context_table(target: str, context_path=None):
+    sdm = _import_sdm()
+    df = build_context_df(target, path=context_path)
+    for col in CAT_FEATURES:
+        df[col] = df[col].astype(str)
+    return sdm.TableTensor.from_pandas(
+        df=df,
+        stypes=sdm.infer_stypes(df),
+        device=_DEVICE,
+    )
+
+
+def _context_table(target: str, context_path=None):
+    """Table de contexte :class:`sdm.TableTensor` de ``target``.
+
+    Le contexte servi (``KUMO_CONTEXT_PATH``) est mis en cache ; un
+    ``context_path`` explicite (évaluation à l'entraînement) ne l'est pas.
+    """
     if target not in TARGETS:
         raise KeyError(f"Cible inconnue : {target}")
+    if context_path is not None:
+        return _build_context_table(target, context_path)
 
     table = _context_tables.get(target)
     if table is None:
         with _context_lock:
             table = _context_tables.get(target)
             if table is None:
-                sdm = _import_sdm()
-                df = build_context_df(target)
-                for col in CAT_FEATURES:
-                    df[col] = df[col].astype(str)
-                table = sdm.TableTensor.from_pandas(
-                    df=df,
-                    stypes=sdm.infer_stypes(df),
-                    device=_DEVICE,
-                )
+                table = _build_context_table(target)
                 _context_tables[target] = table
     return table
 
@@ -113,13 +124,13 @@ def _to_table(df: pd.DataFrame):
     )
 
 
-def _predict_dataframe(df: pd.DataFrame, target: str) -> np.ndarray:
+def _predict_dataframe(df: pd.DataFrame, target: str, context_path=None) -> np.ndarray:
     """Prédit ``target`` pour toutes les lignes de ``df`` (retourne un vecteur)."""
     if target not in TARGETS:
         raise KeyError(f"Cible inconnue : {target}")
 
     model = load_model()
-    context = _context_table(target)
+    context = _context_table(target, context_path)
     target_column = TARGETS[target]["column"]
     query_table = _to_table(df)
 
@@ -151,13 +162,16 @@ def predict_all(request: EnergyPredictionRequest) -> dict[str, float]:
     return {target: predict(request, target) for target in TARGETS}
 
 
-def predict_batch(X, target: str) -> np.ndarray:
-    """Prédit ``target`` pour une matrice de features (colonnes FEATURE_COLUMNS)."""
+def predict_batch(X, target: str, context_path=None) -> np.ndarray:
+    """Prédit ``target`` pour une matrice de features (colonnes FEATURE_COLUMNS).
+
+    ``context_path`` remplace le contexte servi (évaluation à l'entraînement).
+    """
     if getattr(X, "ndim", 2) != 2:
         raise ValueError("predict_batch attend une matrice 2-D de features.")
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(np.asarray(X), columns=FEATURE_COLUMNS)
-    return _predict_dataframe(X, target)
+    return _predict_dataframe(X, target, context_path)
 
 
 def is_available() -> bool:

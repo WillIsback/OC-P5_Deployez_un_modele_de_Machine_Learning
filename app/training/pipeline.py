@@ -14,6 +14,7 @@ import pandas as pd
 from catboost import CatBoostRegressor
 from sklearn.model_selection import KFold, train_test_split
 
+from app.core._kumo_context import write_context
 from app.lib.tools import (
     ensure_dir,
     get_logger,
@@ -37,6 +38,7 @@ COARSE_GRID = {
 }
 MAX_TREES_BUDGET = 1200  # garde-fou "overkill"
 MEDAPE_KEY = "MedAPE_%"
+KUMO_CONTEXT_FILE = "kumo_context.csv"
 
 
 def _candidate_sort_key(c: dict) -> tuple:
@@ -320,7 +322,7 @@ class TrainPipeline:
     @timed("train_final")
     def train_final(self) -> TrainPipeline:
         """Boucle sur les cibles : refit sur TOUT le train avec le nombre d'arbres
-        réglé, puis sauvegarde un .cbm."""
+        réglé, puis sauvegarde un .cbm ; le même train devient le contexte Kumo."""
         self._require_split(require_features=True)
         if not self.best_params:
             raise RuntimeError("Appelez fine_tune() avant train_final().")
@@ -342,6 +344,12 @@ class TrainPipeline:
             model.save_model(str(out))
             self.models[target] = model
             log.info("train_final %s -> %s", target, out)
+        context = write_context(
+            self.X_train, self.Y_train, self.output_dir / KUMO_CONTEXT_FILE
+        )
+        log.info(
+            "train_final contexte Kumo (%d lignes) -> %s", len(self.X_train), context
+        )
         return self
 
     @timed("evaluate")
@@ -396,8 +404,10 @@ class TrainPipeline:
         if include_kumo:
             from app.core import kumo_service
 
+            context_path = self.output_dir / KUMO_CONTEXT_FILE
+
             def kumo_predictor(X, target):
-                return kumo_service.predict_batch(X, target)
+                return kumo_service.predict_batch(X, target, context_path=context_path)
 
         try:
             self.evaluate(kumo_predictor=kumo_predictor)
