@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from grafana_sql import (
+    DASHBOARD_DIR,
     iter_panel_queries,
     iter_panels,
     load_dashboards,
@@ -16,6 +17,7 @@ from synth import EXAMPLE_FEATURES, add_year
 from app.db.models import ApiRequest, BuildingActual, MlModel, Prediction, User
 from app.db.registry import CATBOOST_NAME, KUMO_NAME
 
+DASHBOARD_ROOT = DASHBOARD_DIR.parents[2]
 DATASOURCE = {"type": "grafana-postgresql-datasource", "uid": "p5-postgres"}
 FED_PANELS = {
     "Requêtes",
@@ -99,6 +101,23 @@ def test_dashboards_structure():
                 assert target["rawQuery"] is True
                 assert target["format"] in {"table", "time_series"}
                 assert target["rawSql"].strip()
+
+
+GRAFANA_VERSION = "12.4.3"  # image du service grafana (docker-compose.yml)
+
+
+def test_panels_pinned_to_grafana_version():
+    """Sans pluginVersion, Grafana migre le panneau au chargement : la migration
+    du xychart plante sur des options partielles (tableau « Modèle » vide)."""
+    compose = (DASHBOARD_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert f"grafana/grafana-oss:{GRAFANA_VERSION}" in compose
+    for name, dash in load_dashboards().items():
+        for panel in iter_panels(dash):
+            assert panel.get("pluginVersion") == GRAFANA_VERSION, (name, panel["title"])
+            if panel["type"] == "xychart":
+                assert panel["options"]["mapping"] == "manual"
+                (series,) = panel["options"]["series"]
+                assert {"x", "y"} <= series.keys()
 
 
 @pytest.fixture

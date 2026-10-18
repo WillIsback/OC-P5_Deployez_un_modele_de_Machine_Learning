@@ -44,10 +44,24 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 2,
@@ -79,11 +93,32 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 3,
@@ -115,11 +150,24 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 4,
@@ -151,11 +199,32 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 5,
@@ -186,10 +255,24 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 6,
@@ -220,10 +303,21 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 7,
@@ -255,11 +349,21 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 8,
@@ -290,10 +394,21 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 9,
@@ -324,10 +439,21 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     }
   ]
 }

@@ -66,14 +66,19 @@ DENIED = [
     "INSERT INTO ml_models (name, version) VALUES ('x', 'y')",
 ]
 
+
 @pytest.mark.parametrize("query", ALLOWED)
-def test_grafana_role_reads_allowed_columns(grafana_conn, query): ...
+def test_grafana_role_reads_allowed_columns(grafana_conn, query):
+    ...
     # exécute sous le rôle, ne lève rien
 
+
 @pytest.mark.parametrize("query", DENIED)
-def test_grafana_role_denied(grafana_conn, query): ...
+def test_grafana_role_denied(grafana_conn, query):
+    ...
     # pytest.raises(sqlalchemy.exc.ProgrammingError) ; cause psycopg.errors.InsufficientPrivilege
     # chaque requête dans un SAVEPOINT (conn.begin_nested()) pour continuer après l'erreur
+
 
 def test_roles_with_prefix_includes_grafana():
     assert create_db.Roles.with_prefix("p5").grafana == "p5_grafana"

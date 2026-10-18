@@ -44,7 +44,20 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
       "options": {
@@ -54,7 +67,8 @@
           "fields": "/Prédictions/"
         },
         "textMode": "value_and_name"
-      }
+      },
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 2,
@@ -85,7 +99,20 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
       "options": {
@@ -95,7 +122,8 @@
           "fields": "/Prédictions/"
         },
         "orientation": "horizontal"
-      }
+      },
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 3,
@@ -126,10 +154,21 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 4,
@@ -160,10 +199,21 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 5,
@@ -190,14 +240,32 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT data_year AS \"Année\", model_name AS \"Modèle\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS \"MedAPE énergie (%)\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_ghg) AS \"MedAPE émissions (%)\",\n  count(*) AS \"Bâtiments\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL\nGROUP BY 1, 2\nORDER BY 1, 2"
+          "rawSql": "SELECT data_year AS \"Année\", model_name AS \"Modèle\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS \"MedAPE énergie\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_ghg) AS \"MedAPE CO2e\",\n  count(*) AS \"Bâtiments\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL\nGROUP BY 1, 2\nORDER BY 1, 2"
         }
       ],
       "fieldConfig": {
         "defaults": {},
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "MedAPE.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 6,
@@ -228,10 +296,51 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": {}
+      "options": {
+        "mapping": "manual",
+        "series": [
+          {
+            "frame": {
+              "matcher": {
+                "id": "byIndex",
+                "options": 0
+              }
+            },
+            "x": {
+              "matcher": {
+                "id": "byName",
+                "options": "Réel (log10 kBtu)"
+              }
+            },
+            "y": {
+              "matcher": {
+                "id": "byName",
+                "options": "Prédit (log10 kBtu)"
+              }
+            }
+          }
+        ],
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "12.4.3"
     },
     {
       "id": 7,
@@ -263,11 +372,24 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": {}
+      "options": {},
+      "pluginVersion": "12.4.3"
     }
   ]
 }
