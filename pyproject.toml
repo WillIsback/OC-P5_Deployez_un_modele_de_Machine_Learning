@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.13",
     "catboost>=1.2.10",
     "fastapi[standard]>=0.143.0",
+    "gradio==6.29.1",
     "mlflow>=3.17.0",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
