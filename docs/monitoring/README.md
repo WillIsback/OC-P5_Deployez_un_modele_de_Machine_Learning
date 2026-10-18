@@ -42,8 +42,8 @@ Les taux ne comptent que les requêtes terminées : une requête en cours (ou in
 | Par origine | **Par identifiant** (`/model/predict`, `/compare`), **saisie libre** (`/model/predict/features`), **lot** (évaluation projetée) |
 | Prédictions par heure | Volume de prédictions par modèle |
 | Distribution des consommations prédites | Histogramme en log10 (kBtu/an) : un déplacement de la distribution signale une dérive des entrées ou du modèle |
-| Erreur réelle par année | Erreur relative médiane (MedAPE) énergie et CO2e face aux consommations réelles déclarées, par année et modèle |
-| Prédit vs réel | Un point par bâtiment évalué (log10), idéalement sur la diagonale |
+| Erreur réelle par année | Erreur relative médiane (MedAPE) énergie et CO2e face aux consommations réelles déclarées, par année, modèle et version (une ligne par version après un réentraînement) |
+| Prédit vs réel | Version active du modèle : un point par bâtiment évalué (log10), idéalement sur la diagonale |
 | CatBoost vs Kumo | Sur les appels `/compare` : écart relatif médian de la consommation prédite par Kumo par rapport à CatBoost |
 
 « Erreur réelle par année » et « Prédit vs réel » lisent la vue `v_projected_evaluation` et ne dépendent pas de la plage de temps. Ils sont alimentés par l'évaluation projetée, que le Quickstart lance pour 2019 ; pour d'autres années :
@@ -64,7 +64,7 @@ Grafana se connecte avec un rôle dédié, en lecture seule, créé par `app.db.
 | `ml_models`, `v_projected_evaluation` | lecture |
 | Tout le reste | refusé : corps de requête et de réponse, IP, `input_features`, `users` (e-mails), `buildings`, `building_years`, `building_actuals`, toute écriture |
 
-La vue s'exécute avec les droits de son propriétaire : Grafana obtient les erreurs agrégées sans accès direct aux cibles réelles. Les droits sont vérifiés par `tests/test_grafana_role.py`.
+La vue s'exécute avec les droits de son propriétaire : Grafana lit, bâtiment par bâtiment, les valeurs réelles des **seules années évaluées** (prédictions par lot, données ouvertes de Seattle) et leurs erreurs, jamais la table `building_actuals` elle-même (ni l'année d'entraînement, ni les bâtiments non évalués). Les droits sont vérifiés par `tests/test_grafana_role.py`.
 
 Sur une installation antérieure, relancer le Quickstart (ou `docker compose run --rm tools python -m app.db.create_db`) crée le rôle ; le Quickstart ajoute aussi à `.env` les deux mots de passe manquants sans toucher aux autres.
 

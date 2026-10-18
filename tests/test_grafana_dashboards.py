@@ -237,5 +237,43 @@ def test_catboost_vs_kumo_empty_without_compare(grafana_conn):
 
 def test_real_error_by_year(grafana_conn, monitoring_data):
     rows = _panel_rows(grafana_conn.as_grafana(), "Erreur réelle par année")
-    assert [(r[0], r[1], r[-1]) for r in rows] == [(2019, CATBOOST_NAME, 2)]
-    assert float(rows[0][2]) == pytest.approx(10.0)  # MedAPE énergie (%)
+    assert [(r[0], r[1], r[2], r[-1]) for r in rows] == [
+        (2019, CATBOOST_NAME, "baseline", 2)
+    ]
+    assert float(rows[0][3]) == pytest.approx(10.0)  # MedAPE énergie (%)
+
+
+@pytest.fixture
+def retrained_version(grafana_conn, monitoring_data):
+    """Ancienne version de CatBoost (inactive) évaluée sur les mêmes bâtiments."""
+    with grafana_conn.owner() as s:
+        old = MlModel(name=CATBOOST_NAME, version="ancienne", is_active=False)
+        s.add(old)
+        s.flush()
+        for year_id in s.scalars(
+            select(Prediction.building_year_id).where(
+                Prediction.api_request_id.is_(None)
+            )
+        ).all():
+            s.add(
+                Prediction(
+                    model_id=old.id,
+                    building_year_id=year_id,
+                    input_features=EXAMPLE_FEATURES,
+                    energy_use_kbtu=1.0,
+                    ghg_emissions_tco2e=1.0,
+                )
+            )
+        s.commit()
+
+
+def test_real_error_separates_model_versions(grafana_conn, retrained_version):
+    rows = _panel_rows(grafana_conn.as_grafana(), "Erreur réelle par année")
+    by_version = {r[2]: (float(r[3]), r[-1]) for r in rows}
+    assert by_version["baseline"] == (pytest.approx(10.0), 2)
+    assert set(by_version) == {"baseline", "ancienne"}
+
+
+def test_predicted_vs_actual_shows_active_version_only(grafana_conn, retrained_version):
+    rows = _panel_rows(grafana_conn.as_grafana(), "Prédit vs réel")
+    assert len(rows) == 2  # la version active seule, pas les 4 prédictions

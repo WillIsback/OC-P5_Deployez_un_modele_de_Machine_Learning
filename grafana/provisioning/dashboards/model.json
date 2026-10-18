@@ -219,7 +219,7 @@
       "id": 5,
       "title": "Erreur réelle par année",
       "type": "table",
-      "description": "Évaluation projetée (python -m app.db.evaluate) : erreur relative médiane face aux consommations réelles déclarées. Indépendant de la plage de temps.",
+      "description": "Évaluation projetée (python -m app.db.evaluate) : erreur relative médiane face aux consommations réelles déclarées, par version du modèle. Indépendant de la plage de temps.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "p5-postgres"
@@ -240,7 +240,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT data_year AS \"Année\", model_name AS \"Modèle\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS \"MedAPE énergie\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_ghg) AS \"MedAPE CO2e\",\n  count(*) AS \"Bâtiments\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL\nGROUP BY 1, 2\nORDER BY 1, 2"
+          "rawSql": "SELECT data_year AS \"Année\", model_name AS \"Modèle\", model_version AS \"Version\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS \"MedAPE énergie\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_ghg) AS \"MedAPE CO2e\",\n  count(*) AS \"Bâtiments\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL\nGROUP BY 1, 2, 3\nORDER BY 1, 2, 3"
         }
       ],
       "fieldConfig": {
@@ -271,7 +271,7 @@
       "id": 6,
       "title": "Prédit vs réel",
       "type": "xychart",
-      "description": "Un point par bâtiment évalué ; idéalement sur la diagonale. Indépendant de la plage de temps.",
+      "description": "Version active du modèle : un point par bâtiment évalué, idéalement sur la diagonale. Indépendant de la plage de temps.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "p5-postgres"
@@ -292,7 +292,7 @@
           "editorMode": "code",
           "rawQuery": true,
           "format": "table",
-          "rawSql": "SELECT log10(actual_energy_kbtu) AS \"Réel (log10 kBtu)\", log10(predicted_energy_kbtu) AS \"Prédit (log10 kBtu)\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL AND actual_energy_kbtu > 0 AND predicted_energy_kbtu > 0\nLIMIT 2000"
+          "rawSql": "SELECT log10(actual_energy_kbtu) AS \"Réel (log10 kBtu)\", log10(predicted_energy_kbtu) AS \"Prédit (log10 kBtu)\"\nFROM v_projected_evaluation v\nJOIN ml_models m ON m.name = v.model_name AND m.version = v.model_version AND m.is_active\nWHERE v.exclusion_reason IS NULL AND v.actual_energy_kbtu > 0 AND v.predicted_energy_kbtu > 0\nLIMIT 2000"
         }
       ],
       "fieldConfig": {

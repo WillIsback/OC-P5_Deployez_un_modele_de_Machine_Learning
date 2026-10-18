@@ -64,6 +64,9 @@ main() {
       rm -f .env.example
     fi
   fi
+  # Un .env édité sans saut de ligne final : sans lui, la clé ajoutée ci-dessous
+  # serait collée à la dernière valeur (secret corrompu).
+  [ -z "$(tail -c1 .env)" ] || echo >>.env
   # Uid/gid de l'hôte pour le service tools (écriture dans ./data), si absents.
   grep -q '^UID=' .env || printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >>.env
   # Secrets du monitoring, absents d'un .env antérieur : ajoutés sans toucher aux autres.
@@ -73,6 +76,8 @@ main() {
   done
   # Créés par l'utilisateur, sinon Docker les crée au nom de root.
   mkdir -p data mlruns
+  # Grafana (uid 472) lit ce montage : lisible quel que soit l'umask (077 → 600).
+  chmod -R a+rX grafana
   info "dossier : $PWD"
 
   step "Image de l'API"
