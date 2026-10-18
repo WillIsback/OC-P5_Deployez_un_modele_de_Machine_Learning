@@ -43,17 +43,24 @@ def write_context(X: pd.DataFrame, Y: pd.DataFrame, path: str | Path) -> Path:
 def build_context_df(
     target: str, path: str | Path | None = None, size: int | None = None
 ) -> pd.DataFrame:
-    """Lignes de contexte pour ``target`` (features + cible)."""
+    """Lignes de contexte pour ``target`` (features + cible).
+
+    Sans ``path``, le contexte servi : ``KUMO_CONTEXT_PATH`` échantillonné à
+    ``KUMO_CONTEXT_SIZE``. Un ``path`` explicite (évaluation à l'entraînement)
+    est lu en entier, sauf ``size`` explicite. ``size`` absent ou 0 : tout.
+    """
     if target not in TARGETS:
         raise KeyError(f"Cible inconnue : {target}")
-    path = Path(path or os.getenv("KUMO_CONTEXT_PATH", DEFAULT_CONTEXT_PATH))
+    if path is None:
+        path = os.getenv("KUMO_CONTEXT_PATH", DEFAULT_CONTEXT_PATH)
+        size = size if size is not None else context_size()
+    path = Path(path)
     if not path.exists():
         raise FileNotFoundError(
             f"Contexte Kumo introuvable : {path}. Il est exporté par "
             "`python -m app.training`."
         )
     df = pd.read_csv(path)
-    size = size if size is not None else context_size()
-    if size is not None and size < len(df):
+    if size and size < len(df):
         df = df.sample(n=size, random_state=_SEED).reset_index(drop=True)
     return df[FEATURE_COLUMNS + [TARGETS[target]["column"]]]

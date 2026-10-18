@@ -67,6 +67,24 @@ def test_build_context_df_samples_reproducibly(context_file):
     )
 
 
+def test_explicit_path_ignores_env_size(context_file, monkeypatch):
+    """Évaluation à l'entraînement : tout le contexte, quel que soit l'env."""
+    monkeypatch.setenv("KUMO_CONTEXT_SIZE", "7")
+    assert len(kc.build_context_df("energy", path=context_file)) == 40
+
+
+def test_explicit_size_zero_keeps_all(context_file):
+    assert len(kc.build_context_df("energy", path=context_file, size=0)) == 40
+
+
+def test_shipped_context_has_real_magnitudes():
+    """Non-régression #68 : l'ancien contexte posait émissions = 0,1 × énergie."""
+    df = pd.read_csv(kc.DEFAULT_CONTEXT_PATH)
+    assert list(df.columns) == FEATURE_COLUMNS + TARGET_COLUMNS
+    energy, emissions = (df[c] for c in TARGET_COLUMNS)
+    assert (emissions / energy).median() < 1e-3  # ≈ 2e-5 t CO2e par kBtu
+
+
 def test_build_context_df_size_above_rows_keeps_all(context_file):
     assert len(kc.build_context_df("energy", path=context_file, size=500)) == 40
 

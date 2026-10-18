@@ -96,8 +96,9 @@ def run_model(session: Session, inp: ModelInput, model_name: str) -> Prediction:
     """Prédit depuis l'entrée figée et enregistre la prédiction avec elle."""
     frame = pd.DataFrame([inp.features])[FEATURE_COLUMNS]
     if model_name == KUMO_NAME:
-        model = active_model(session, model_name)
+        # Prédire d'abord : aucune connexion tenue pendant l'inférence (~20 s/cible).
         values = {t: float(kumo_service.predict_batch(frame, t)[0]) for t in TARGETS}
+        model = active_model(session, model_name)
     else:
         # Prédire d'abord : le chargement des .cbm fige la version à tracer.
         values = {t: float(v[0]) for t, v in model_service.predict_frame(frame).items()}

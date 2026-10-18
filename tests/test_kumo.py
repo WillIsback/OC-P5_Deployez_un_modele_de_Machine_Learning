@@ -103,6 +103,21 @@ def test_real_context_gives_realistic_magnitudes(tmp_path):
         assert 0.2 < ratio < 5, f"{target} : prédit/réel médian = {ratio:.2f}"
 
 
+def test_served_context_gives_realistic_magnitudes(tmp_path, monkeypatch):
+    """Même contrôle par le chemin servi (KUMO_CONTEXT_PATH, cache, taille)."""
+    full = pd.read_csv(_kumo_context.DEFAULT_CONTEXT_PATH)
+    path = tmp_path / "ctx.csv"
+    full.iloc[:200].to_csv(path, index=False)
+    monkeypatch.setenv("KUMO_CONTEXT_PATH", str(path))
+    monkeypatch.setattr(kumo_service, "_context_tables", {})
+    query = full.iloc[200:230]
+    for target, meta in TARGETS.items():
+        pred = kumo_service.predict_batch(query[FEATURE_COLUMNS], target)
+        ratio = np.median(pred / query[meta["column"]].to_numpy())
+        assert 0.2 < ratio < 5, f"{target} : prédit/réel médian = {ratio:.2f}"
+    assert set(kumo_service._context_tables) == set(TARGETS)
+
+
 def test_missing_context_file_raises(monkeypatch, tmp_path):
     with pytest.raises(FileNotFoundError):
         kumo_service.predict_batch(
