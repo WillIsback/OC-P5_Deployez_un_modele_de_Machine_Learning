@@ -17,6 +17,11 @@ COPY --chown=appuser:appuser models/energy.cbm models/emissions.cbm models/score
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/docs')" || exit 1
 
+# Version affichée par l'API (OpenAPI / Swagger) : tag de release passé par
+# release.yml, « dev » pour un build local.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 # Le venv de l'image de base est placé dans le PATH : `python -m app.db…` fonctionne
 # directement dans les conteneurs (service `tools` du compose).
 ENV PATH="/app/.venv/bin:$PATH"

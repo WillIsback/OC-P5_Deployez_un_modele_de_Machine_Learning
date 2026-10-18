@@ -41,7 +41,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 | **Qualité & tests** | [uv](https://github.com/astral-sh/uv), ruff, pytest + pytest-cov, diff-cover, SonarCloud |
 | **CI/CD** | GitHub Actions, release semver automatique, revue de code IA |
 | **Sécurité** | CodeQL, Trivy, Gitleaks, Dependency Review, hadolint, actionlint, zizmor |
-| **Documentation** | Markdown, diagrammes [D2](https://d2lang.com/) |
+| **Documentation** | Markdown, diagrammes Mermaid, OpenAPI (Swagger / ReDoc) |
 
 ---
 
@@ -105,6 +105,7 @@ Toutes les routes, la saisie libre des features et les codes d'erreur : [`docs/a
 ```bash
 # Installer les dépendances
 uv sync
+# … ou, sans uv : pip install -r requirements.txt (exporté de uv.lock, vérifié en CI)
 
 # Lancer l'application en mode développement (http://localhost:8000) : nécessite
 # la base provisionnée par le Quickstart développeur (modèles livrés dans models/)
@@ -144,6 +145,22 @@ done
 ```
 
 Ingestion, préparation et évaluation de ces années : voir [`docs/db/README.md`](docs/db/README.md) (section « Années de production 2017–2019 »).
+
+### Stockage et gestion des données
+
+- **Source** : CSV 2016 du projet et open data de Seattle (2017–2019), téléchargés dans `data/` (non versionné), harmonisés vers le schéma 2016, nettoyés et transformés en 17 features par `app.db.ingest`. L'ingestion est idempotente (upsert sur bâtiment et année).
+- **Stockage** : identité des bâtiments et split dans `buildings`, features par année dans `building_years`, cibles réelles isolées dans `building_actuals`. La base est la source de vérité de l'entraînement, qui enregistre chaque version dans `ml_models` (lien vers le run MLflow, base `mlflow` séparée).
+- **Traçabilité** : chaque appel API écrit une ligne `api_requests` (utilisateur, route, code, durée, corps JSONB masqués) ; chaque prédiction écrit une ligne `predictions` liée à la requête, à l'année de features et à la version du modèle. Aucune prédiction n'est servie si la trace ne peut pas être écrite (503).
+- **Rétention** : les traces sont conservées sans purge automatique ; leur volume reste faible (une ligne par appel, index sur `(user_id, created_at)` et `(path, created_at)`).
+
+### Besoins analytiques
+
+Deux tableaux de bord Grafana provisionnés lisent la base avec le rôle `p5_grafana` ([`docs/monitoring/README.md`](docs/monitoring/README.md)) :
+
+- **API** : trafic, taux 4xx et 5xx, latence p95 et par route, utilisateurs authentifiés, dernières erreurs ;
+- **Modèle** : prédictions par modèle et par origine, distribution des consommations prédites, prédit contre réel et erreur médiane par année sur l'évaluation projetée (`v_projected_evaluation`).
+
+Des requêtes SQL d'analyse sont données dans [`docs/db/README.md`](docs/db/README.md#5-exemples-de-requêtes-sql).
 
 ### Variables d'environnement
 
@@ -222,6 +239,21 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 
 ## 🔒 Sécurité
 
+### Authentification et gestion des accès
+
+- **Jeton JWT Bearer** (OAuth2 *password flow*) : `POST /token` avec `username` / `password` renvoie un jeton HS256 valable 30 minutes, signé par `SECRET_KEY`. Toutes les autres routes l'exigent (`Authorization: Bearer <jeton>`, bouton *Authorize* de Swagger). Le claim `sub` porte l'identifiant de l'utilisateur, rechargé en base à chaque appel : un compte désactivé ou supprimé est refusé même avec un jeton encore valide.
+- **Mots de passe** hachés en **Argon2id** (pwdlib) dans la table `users`, jamais stockés ni journalisés en clair : `password`, `access_token` et `client_secret` sont remplacés par `"***"` avant écriture dans `api_requests`.
+- **Moindre privilège en base** : quatre rôles PostgreSQL. L'API utilise `p5_api`, qui lit le dataset mais pas les cibles réelles (`building_actuals`) et n'écrit que les traces et prédictions. `p5_owner` (schéma, ingestion, entraînement), `p5_mlflow` et `p5_grafana` (lecture seule, colonne par colonne) complètent le dispositif ([détail](docs/db/README.md#3-rôles-et-sécurité)).
+- **Comptes de démonstration** (`johndoe` / `alice`) créés uniquement si `P5_SEED_DEMO_USERS=1`, jamais en production.
+
+### Secrets
+
+- `.env` est ignoré par Git ; `.example.env` ne contient que des valeurs factices. Le Quickstart utilisateurs génère tous les mots de passe et la `SECRET_KEY` aléatoirement.
+- Le service `api` ne reçoit que `SECRET_KEY` et `DATABASE_URL` ; seul le service `tools` reçoit les identifiants administrateur et propriétaire.
+- Côté CI, les secrets vivent dans GitHub Secrets ; le `GITHUB_TOKEN` a des permissions minimales par job. Environnements dev / test / prod : voir [`docs/ci-cd/README.md`](docs/ci-cd/README.md#-environnements).
+
+### Pipeline
+
 - Analyse **SAST** (CodeQL) sur chaque PR
 - Scan des dépendances (**Trivy + Dependency Review**)
 - Détection de secrets (**Gitleaks**)
@@ -250,7 +282,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 ### 1. Dépôt Git structuré
 
 - Code source complet
-- `pyproject.toml` / `uv.lock` (dépendances gérées par uv, pas de `requirements.txt`)
+- `pyproject.toml` / `uv.lock` (dépendances gérées par uv) et `requirements.txt` / `requirements-dev.txt` exportés pour pip, synchronisés par la CI
 - Historique de commits clair (branches, tags, Conventional Commits)
 - README complet
 
@@ -258,7 +290,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 
 - Développée avec **FastAPI**
 - Expose le modèle de ML via des endpoints REST
-- Documentation intégrée (Swagger / OpenAPI)
+- Documentation intégrée (Swagger `/docs`, ReDoc `/redoc`, OpenAPI `/openapi.json`) : titre, description, version de release, tags
 - Endpoints, schémas de données, exemples d'appels
 - Interface de démonstration Gradio, cliente de l'API ([`docs/ui/README.md`](docs/ui/README.md))
 
@@ -279,7 +311,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 ### 5. Pipeline CI/CD
 
 - Configuration complète dans `.github/workflows/`
-- Configuration par variables d'environnement (`.env` en local, services Docker Compose `api` / `tools`) ; pas d'environnements GitHub dev/test/prod distincts
+- Environnements développement, test et production séparés par configuration ; job de publication rattaché à l'environnement GitHub `production` ([détail](docs/ci-cd/README.md#-environnements))
 - Intégration des secrets
 - Rulesets GitHub (branches + tags)
 

@@ -126,6 +126,17 @@ jobs:
           uv lock --check
           echo "✅ Lockfile valide."
 
+      # requirements*.txt : export pip de uv.lock, versionné pour qui n'utilise
+      # pas uv. Toute dérive avec le lockfile fait échouer le job.
+      - name: Synchronisation des requirements avec le lockfile
+        run: |
+          set -euo pipefail
+          uv export --frozen --no-hashes --no-dev --format requirements-txt -o requirements.txt -q
+          uv export --frozen --no-hashes --only-dev --format requirements-txt -o requirements-dev.txt -q
+          git diff --exit-code -- requirements.txt requirements-dev.txt \
+            || { echo "❌ requirements*.txt désynchronisés : relancer les deux commandes uv export ci-dessus."; exit 1; }
+          echo "✅ requirements*.txt à jour."
+
       - name: Vérification des manifests (pyproject.toml)
         shell: python
         run: |

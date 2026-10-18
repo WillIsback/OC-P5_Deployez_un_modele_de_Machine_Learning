@@ -19,9 +19,11 @@ Le workflow `ci-security` exécute 4 analyses sur chaque PR :
 
 - **Écosystème** : pip (Python), Docker, GitHub Actions
 - **Licences** : seules les licences de l'allowlist `allow-licenses` de `ci-security.yml` sont autorisées :
-  `MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only`
+  `MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only, MIT-0, MIT-CMU, PSF-2.0, Zlib, ZPL-2.1, HPND-Markus-Kuhn, BSD-2-Clause-Views`
   - `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`, `BSL-1.0` : composants de l'expression SPDX composée de `torch` ;
   - `LGPL-3.0-only` : licence de `psycopg` (ajoutée avec l'intégration PostgreSQL).
+  - `MIT-0`, `MIT-CMU`, `PSF-2.0`, `Zlib`, `ZPL-2.1`, `HPND-Markus-Kuhn`, `BSD-2-Clause-Views` : licences permissives de `cffi`, `pillow`, `aiohappyeyeballs` / `typing-extensions`, `numpy`, `waitress`, `wcwidth` et `sqlparse`, révélées quand `requirements.txt` a rendu tout l'arbre de dépendances visible par Dependency Review (GitHub ne lit pas `uv.lock`).
+  - **Exceptions par paquet** (`allow-dependencies-licenses`) : `aiohappyeyeballs` et `typing-extensions` déclarent `PSF-2.0`, mais la détection y ajoute `GPL-1.0-or-later` (lu dans l'historique du texte de la licence PSF) : faux positif, la GPL n'est **pas** ajoutée à l'allowlist. `matplotlib` (licence dérivée de la PSF) et `protobuf` (`BSD-3-Clause`) portent un `LicenseRef-scancode-…` non SPDX.
 - **Scopes** : les dépendances `runtime` sont inspectées ; `dev`/`test` sont exclues
 
 ### SAST — Code
