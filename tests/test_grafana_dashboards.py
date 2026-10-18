@@ -11,8 +11,10 @@ from grafana_sql import (
     render_macros,
 )
 from sqlalchemy import select, text
+from synth import EXAMPLE_FEATURES, add_year
 
-from app.db.models import ApiRequest, User
+from app.db.models import ApiRequest, BuildingActual, MlModel, Prediction, User
+from app.db.registry import CATBOOST_NAME, KUMO_NAME
 
 DATASOURCE = {"type": "grafana-postgresql-datasource", "uid": "p5-postgres"}
 FED_PANELS = {
@@ -25,6 +27,13 @@ FED_PANELS = {
     "Latence par route",
     "Par route",
     "20 dernières erreurs",
+    "Prédictions par modèle",
+    "Par origine",
+    "Prédictions par heure",
+    "Distribution des consommations prédites",
+    "Erreur réelle par année",
+    "Prédit vs réel",
+    "CatBoost vs Kumo",
 }
 
 
@@ -77,7 +86,7 @@ def test_render_macros_rejects_unknown(sql):
 
 def test_dashboards_structure():
     dashboards = load_dashboards()
-    assert {d["uid"] for d in dashboards.values()} >= {"p5-api"}
+    assert {d["uid"] for d in dashboards.values()} == {"p5-api", "p5-model"}
     assert len({d["uid"] for d in dashboards.values()}) == len(dashboards)
     for name, dash in dashboards.items():
         assert dash["title"], name
@@ -121,6 +130,40 @@ def monitoring_data(grafana_conn):
                 request_id=uuid.uuid4(), method="GET", path="/buildings", created_at=now
             )
         )
+        s.flush()
+        api_ids = s.scalars(
+            select(ApiRequest.id).where(ApiRequest.status_code == 200)
+        ).all()
+        models = dict(s.execute(select(MlModel.name, MlModel.id)).all())
+        catboost, kumo = models[CATBOOST_NAME], models[KUMO_NAME]
+
+        def predict(model_id, energy, api_request_id=None, year_id=None):
+            s.add(
+                Prediction(
+                    model_id=model_id,
+                    api_request_id=api_request_id,
+                    building_year_id=year_id,
+                    input_features=EXAMPLE_FEATURES,
+                    energy_use_kbtu=energy,
+                    ghg_emissions_tco2e=energy / 1000,
+                )
+            )
+
+        years = [add_year(s, building_id, 2019) for building_id in (901, 902)]
+        for year, actual in zip(years, (2000.0, 4000.0), strict=True):
+            s.add(
+                BuildingActual(
+                    building_year_id=year.id,
+                    site_energy_use_kbtu=actual,
+                    total_ghg_emissions_tco2e=actual / 1000,
+                )
+            )
+            predict(catboost, actual * 1.1, year_id=year.id)  # lot : 10 % d'erreur
+        for api_id in api_ids[:3]:
+            predict(catboost, 3000.0, api_id, years[0].id)  # par identifiant
+        predict(catboost, 2500.0, api_ids[3])  # saisie libre
+        predict(catboost, 1000.0, api_ids[4], years[1].id)  # /compare
+        predict(kumo, 1200.0, api_ids[4], years[1].id)
         s.commit()
     return {"finished": len(calls)}
 
@@ -152,3 +195,28 @@ def test_routes_grouped_by_id(grafana_conn, monitoring_data):
     routes = {row[0] for row in _panel_rows(conn, "Par route")}
     assert "/buildings/{id}" in routes
     assert "/buildings/28" not in routes
+
+
+def test_model_origin_breakdown(grafana_conn, monitoring_data):
+    rows = _panel_rows(grafana_conn.as_grafana(), "Par origine")
+    assert {origin: n for origin, n in rows} == {
+        "Par identifiant": 5,
+        "Saisie libre": 1,
+        "Lot": 2,
+    }
+
+
+def test_catboost_vs_kumo_median_gap(grafana_conn, monitoring_data):
+    ((gap,),) = _panel_rows(grafana_conn.as_grafana(), "CatBoost vs Kumo")
+    assert float(gap) == pytest.approx(20.0)
+
+
+def test_catboost_vs_kumo_empty_without_compare(grafana_conn):
+    rows = _panel_rows(grafana_conn.as_grafana(), "CatBoost vs Kumo")
+    assert rows in ([], [(None,)])
+
+
+def test_real_error_by_year(grafana_conn, monitoring_data):
+    rows = _panel_rows(grafana_conn.as_grafana(), "Erreur réelle par année")
+    assert [(r[0], r[1], r[-1]) for r in rows] == [(2019, CATBOOST_NAME, 2)]
+    assert float(rows[0][2]) == pytest.approx(10.0)  # MedAPE énergie (%)

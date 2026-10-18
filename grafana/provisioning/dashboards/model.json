@@ -1,0 +1,273 @@
+{
+  "uid": "p5-model",
+  "title": "P5 — Modèle",
+  "description": "Suivi du modèle : prédictions servies et erreur réelle (tables predictions, v_projected_evaluation).",
+  "tags": [
+    "p5"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Prédictions par modèle",
+      "type": "stat",
+      "description": "Prédictions enregistrées sur la période, par modèle (CatBoost servi, Kumo-Tabular en comparaison).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT m.name AS \"Modèle\", count(*) AS \"Prédictions\"\nFROM predictions p\nJOIN ml_models m ON m.id = p.model_id\nWHERE $__timeFilter(p.predicted_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": "/Prédictions/"
+        },
+        "textMode": "value_and_name"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Par origine",
+      "type": "bargauge",
+      "description": "Par identifiant (/predict, /compare), saisie libre (/predict/features), lot (évaluation projetée).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT CASE WHEN p.api_request_id IS NOT NULL AND p.building_year_id IS NOT NULL THEN 'Par identifiant'\n  WHEN p.api_request_id IS NOT NULL THEN 'Saisie libre' ELSE 'Lot' END AS \"Origine\", count(*) AS \"Prédictions\"\nFROM predictions p\nWHERE $__timeFilter(p.predicted_at)\nGROUP BY 1\nORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": "/Prédictions/"
+        },
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Prédictions par heure",
+      "type": "timeseries",
+      "description": "Volume de prédictions par modèle.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(p.predicted_at, 1h), m.name AS metric, count(*) AS value\nFROM predictions p\nJOIN ml_models m ON m.id = p.model_id\nWHERE $__timeFilter(p.predicted_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "title": "Distribution des consommations prédites",
+      "type": "histogram",
+      "description": "Échelle log10 : un déplacement de la distribution signale une dérive des entrées ou du modèle.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT log10(p.energy_use_kbtu) AS \"log10(kBtu/an)\"\nFROM predictions p\nWHERE $__timeFilter(p.predicted_at) AND p.energy_use_kbtu > 0"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "title": "Erreur réelle par année",
+      "type": "table",
+      "description": "Évaluation projetée (python -m app.db.evaluate) : erreur relative médiane face aux consommations réelles déclarées. Indépendant de la plage de temps.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT data_year AS \"Année\", model_name AS \"Modèle\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_energy) AS \"MedAPE énergie (%)\",\n  100 * percentile_cont(0.5) WITHIN GROUP (ORDER BY rel_err_ghg) AS \"MedAPE émissions (%)\",\n  count(*) AS \"Bâtiments\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL\nGROUP BY 1, 2\nORDER BY 1, 2"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "Prédit vs réel",
+      "type": "xychart",
+      "description": "Un point par bâtiment évalué ; idéalement sur la diagonale. Indépendant de la plage de temps.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT log10(actual_energy_kbtu) AS \"Réel (log10 kBtu)\", log10(predicted_energy_kbtu) AS \"Prédit (log10 kBtu)\"\nFROM v_projected_evaluation\nWHERE exclusion_reason IS NULL AND actual_energy_kbtu > 0 AND predicted_energy_kbtu > 0\nLIMIT 2000"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "title": "CatBoost vs Kumo",
+      "type": "stat",
+      "description": "Sur les appels /compare : écart relatif médian de la consommation prédite par Kumo par rapport à CatBoost.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT 100 * percentile_cont(0.5) WITHIN GROUP (\n    ORDER BY abs(k.energy_use_kbtu - c.energy_use_kbtu) / NULLIF(c.energy_use_kbtu, 0)\n  ) AS \"Écart médian\"\nFROM predictions c\nJOIN ml_models mc ON mc.id = c.model_id AND mc.name = 'catboost-multitarget'\nJOIN predictions k ON k.api_request_id = c.api_request_id\nJOIN ml_models mk ON mk.id = k.model_id AND mk.name = 'kumo-tabular-zero-shot'\nWHERE $__timeFilter(c.predicted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}
