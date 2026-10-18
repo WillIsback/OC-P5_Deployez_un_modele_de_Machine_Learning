@@ -142,8 +142,8 @@ main() {
 
   cat <<EOF
 
-$(printf '\033[1;32m')✅ API prête sur $api$(printf '\033[0m')
-   Interface (démonstration) : $ui
+$(printf '\033[1;32m')✅ Interface de démonstration : $ui$(printf '\033[0m')
+   API                       : $api
    Documentation interactive : $api/docs
    Monitoring (Grafana)      : $grafana  (admin / GRAFANA_ADMIN_PASSWORD dans .env)
    Compte de démonstration   : johndoe / secret

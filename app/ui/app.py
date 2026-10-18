@@ -77,7 +77,23 @@ LAUNCH_OPTIONS: dict[str, Any] = {
     "css": _CSS,
     "js": _FORCE_LIGHT,
     "footer_links": [],
+    # Par défaut, Gradio enregistre les entrées de chaque événement (dont le mot
+    # de passe) dans le localStorage du navigateur (/gradio_api/runs).
+    "run_history": False,
 }
+# Événements non exposés en API Gradio (/gradio_api/call/…) : l'interface est
+# le seul client prévu.
+PRIVATE = {"api_visibility": "private"}
+SELECT_PROMPT = "Sélectionnez un bâtiment dans la liste."
+
+
+def launch_options() -> dict[str, Any]:
+    """Options de ``launch()`` ; ``GRADIO_SERVER_NAME=0.0.0.0`` dans Compose."""
+    return {
+        **LAUNCH_OPTIONS,
+        "server_name": os.getenv("GRADIO_SERVER_NAME", "127.0.0.1"),
+        "server_port": 7860,
+    }
 
 
 def new_state() -> dict:
@@ -86,6 +102,17 @@ def new_state() -> dict:
 
 def _panels(logged_in: bool, message: str = "") -> tuple:
     return gr.update(visible=not logged_in), gr.update(visible=logged_in), message
+
+
+def _building_reset() -> tuple:
+    """Colonne droite vide : fiche, année, bouton, résultat, bandeau."""
+    return (
+        SELECT_PROMPT,
+        gr.update(choices=[], value=None),
+        gr.update(interactive=False),
+        "",
+        _error(None),
+    )
 
 
 def _error(message: str | None) -> dict:
@@ -148,12 +175,12 @@ def on_login(client: ApiClient, state: dict, username: str, password: str):
         return (
             state,
             *_panels(False, "Saisissez votre identifiant et votre mot de passe."),
-            *[gr.update() for _ in range(5)],
+            *[gr.update() for _ in range(10)],
         )
     try:
         token = client.login(username, password)
     except ApiError as err:
-        return (state, *_panels(False, err.message), *[gr.update() for _ in range(5)])
+        return (state, *_panels(False, err.message), *[gr.update() for _ in range(10)])
     state = {**new_state(), "token": token, "username": username}
     state, table, page_md, prev_btn, next_btn = _page(client, state, "", ALL, 0)
     return (
@@ -164,6 +191,7 @@ def on_login(client: ApiClient, state: dict, username: str, password: str):
         page_md,
         prev_btn,
         next_btn,
+        *_building_reset(),
     )
 
 
@@ -222,6 +250,8 @@ def on_select(client: ApiClient, state: dict, evt: gr.SelectData):
 
 @session_guard(2)
 def on_predict(client: ApiClient, state: dict, year: int | None, with_kumo: bool):
+    if not state.get("building"):
+        return (state, *_panels(True), "", _error(SELECT_PROMPT))
     building_id = state["building"]["building_id"]
     try:
         if with_kumo:
@@ -244,8 +274,8 @@ def on_predict(client: ApiClient, state: dict, year: int | None, with_kumo: bool
 
 
 def on_logout(state: dict):
-    """Déconnexion : jeton oublié et mot de passe effacé du formulaire."""
-    return (new_state(), *_panels(False), "")
+    """Déconnexion : jeton oublié, mot de passe et bâtiment effacés."""
+    return (new_state(), *_panels(False), "", *_building_reset())
 
 
 def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Blocks:
@@ -300,7 +330,7 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
                         page_md = gr.Markdown()
                         next_btn = gr.Button("Suivant ▶", size="sm", interactive=False)
                 with gr.Column(scale=4):
-                    card_md = gr.Markdown("Sélectionnez un bâtiment dans la liste.")
+                    card_md = gr.Markdown(SELECT_PROMPT)
                     year_dd = gr.Dropdown(label="Année", choices=[])
                     with_kumo = gr.Checkbox(
                         label="Comparer avec Kumo-Tabular",
@@ -314,32 +344,38 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
 
         head = [state, login_panel, main_panel, login_msg]
         page_outputs = [table, page_md, prev_btn, next_btn]
+        building_outputs = [card_md, year_dd, predict_btn, result_md, error_md]
 
         login_btn.click(
             bind(on_login, client),
             [state, username, password],
-            [*head, user_md, *page_outputs],
+            [*head, user_md, *page_outputs, *building_outputs],
+            **PRIVATE,
         )
         password.submit(
             bind(on_login, client),
             [state, username, password],
-            [*head, user_md, *page_outputs],
+            [*head, user_md, *page_outputs, *building_outputs],
+            **PRIVATE,
         )
         for trigger in (search_btn.click, query.submit, neighborhood.change):
             trigger(
                 lambda s, q, n: on_search(client, s, q, n, 0),
                 [state, query, neighborhood],
                 [*head, *page_outputs, error_md],
+                **PRIVATE,
             )
         prev_btn.click(
             lambda s, q, n: on_page(client, s, q, n, -1),
             [state, query, neighborhood],
             [*head, *page_outputs, error_md],
+            **PRIVATE,
         )
         next_btn.click(
             lambda s, q, n: on_page(client, s, q, n, 1),
             [state, query, neighborhood],
             [*head, *page_outputs, error_md],
+            **PRIVATE,
         )
 
         # Fonction annotée explicitement : Gradio injecte gr.SelectData d'après la
@@ -351,14 +387,27 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
             select_row,
             [state],
             [*head, card_md, year_dd, predict_btn, result_md, error_md],
+            **PRIVATE,
         )
         predict_btn.click(
-            lambda: gr.update(value="Calcul…", interactive=False), None, predict_btn
+            lambda: gr.update(value="Calcul…", interactive=False),
+            None,
+            predict_btn,
+            **PRIVATE,
         ).then(
             bind(on_predict, client),
             [state, year_dd, with_kumo],
             [*head, result_md, error_md],
-        ).then(lambda: gr.update(value="Prédire", interactive=True), None, predict_btn)
-        logout_btn.click(on_logout, [state], [*head, password])
+            **PRIVATE,
+        ).then(
+            # Réactivé seulement si un bâtiment est sélectionné (session valide).
+            lambda s: gr.update(value="Prédire", interactive=bool(s.get("building"))),
+            [state],
+            predict_btn,
+            **PRIVATE,
+        )
+        logout_btn.click(
+            on_logout, [state], [*head, password, *building_outputs], **PRIVATE
+        )
 
     return demo

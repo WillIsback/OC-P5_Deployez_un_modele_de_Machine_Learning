@@ -99,6 +99,8 @@ services:
     command: ["python", "-m", "app.ui"]
     environment:
       P5_API_URL: http://api:8080
+      # Écoute sur toutes les interfaces du conteneur (hors Docker : 127.0.0.1).
+      GRADIO_SERVER_NAME: 0.0.0.0
     depends_on:
       api:
         condition: service_healthy

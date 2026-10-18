@@ -84,7 +84,7 @@ def visible(update):
 
 def test_login_success_shows_main():
     out = ui.on_login(FakeClient(), ui.new_state(), "johndoe", "secret")
-    state, login, main, message, user_md, table, page_md, prev_btn, next_btn = out
+    state, login, main, message, user_md, table, page_md, prev_btn, next_btn = out[:9]
     assert message == ""
     assert state["token"] == "jeton" and state["username"] == "johndoe"
     assert not visible(login) and visible(main)
@@ -207,7 +207,7 @@ def test_expired_session_returns_to_login(action):
 
 
 def test_logout_clears_password():
-    state, login, main, message, password = ui.on_logout(logged_state())
+    state, login, main, message, password = ui.on_logout(logged_state())[:5]
     assert state == ui.new_state()
     assert visible(login) and not visible(main) and message == ""
     assert password == ""  # pas de mot de passe laissé à l'écran
@@ -291,3 +291,53 @@ def test_login_requires_both_fields(username, password):
     assert visible(login) and not visible(main)
     assert message == "Saisissez votre identifiant et votre mot de passe."
     assert client.calls == []  # aucun appel à l'API
+
+
+def test_no_run_history_nor_public_api():
+    """Gradio enregistre par défaut les entrées de chaque événement (dont le mot
+    de passe) dans le localStorage (/gradio_api/runs) et expose chaque événement
+    en API publique : les deux sont désactivés."""
+    assert ui.LAUNCH_OPTIONS["run_history"] is False
+    demo = ui.build_app(lambda: FakeClient())
+    assert {f.api_visibility for f in demo.fns.values()} == {"private"}
+
+
+RIGHT_RESET = "Sélectionnez un bâtiment dans la liste."
+
+
+def test_logout_resets_building_panel():
+    out = ui.on_logout({**logged_state(), "building": DETAIL})
+    card_md, year_dd, predict_btn, result_md, error_md = out[5:]
+    assert card_md == RIGHT_RESET
+    assert year_dd["choices"] == [] and year_dd["value"] is None
+    assert predict_btn["interactive"] is False
+    assert result_md == "" and not visible(error_md)
+
+
+def test_login_resets_building_panel():
+    out = ui.on_login(FakeClient(), ui.new_state(), "johndoe", "secret")
+    assert tuple(out[9:]) == ui._building_reset()
+
+
+def test_expired_session_resets_building_panel():
+    client = FakeClient(fail={"predict": SessionExpired()})
+    out = ui.on_predict(client, {**logged_state(), "building": DETAIL}, 2019, False)
+    assert out[0]["building"] is None
+    assert visible(out[1]) and not visible(out[2])
+
+
+def test_predict_without_building():
+    """Bouton resté actif (ex. après reconnexion) : message, pas de TypeError."""
+    client = FakeClient()
+    result_md, error_md = ui.on_predict(client, logged_state(), 2019, False)[4:]
+    assert result_md == ""
+    assert "Sélectionnez un bâtiment" in error_md["value"]
+    assert client.calls == []
+
+
+def test_launch_listens_on_localhost_by_default(monkeypatch):
+    monkeypatch.delenv("GRADIO_SERVER_NAME", raising=False)
+    assert ui.launch_options()["server_name"] == "127.0.0.1"
+    monkeypatch.setenv("GRADIO_SERVER_NAME", "0.0.0.0")
+    assert ui.launch_options()["server_name"] == "0.0.0.0"
+    assert ui.launch_options()["server_port"] == 7860
