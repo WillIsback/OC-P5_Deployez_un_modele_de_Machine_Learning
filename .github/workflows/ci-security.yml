@@ -44,7 +44,16 @@ jobs:
           # LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT)
           # -> chaque composant doit figurer dans l'allow-list.
           # LGPL-3.0-only : composant de psycopg (intégration PostgreSQL).
-          allow-licenses: "MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only"
+          # Licences permissives révélées par requirements.txt (GitHub ne lit
+          # pas uv.lock) : MIT-0 (cffi), MIT-CMU (pillow), PSF-2.0, Zlib
+          # (numpy), ZPL-2.1 (waitress), HPND-Markus-Kuhn (wcwidth),
+          # BSD-2-Clause-Views (sqlparse). Voir docs/policies/security-gates.md.
+          allow-licenses: "MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSD-2-Clause, ISC, Unlicense, 0BSD, MPL-2.0, CC0-1.0, CC-BY-4.0, Python-2.0, Unicode-3.0, BSL-1.0, LGPL-3.0-only, MIT-0, MIT-CMU, PSF-2.0, Zlib, ZPL-2.1, HPND-Markus-Kuhn, BSD-2-Clause-Views"
+          # Expressions mal détectées : aiohappyeyeballs et typing-extensions
+          # déclarent PSF-2.0 (le « GPL-1.0-or-later » vient de l'historique de
+          # la licence PSF, lu par scancode) ; matplotlib (licence PSF dérivée)
+          # et protobuf (BSD-3-Clause) portent un LicenseRef non SPDX.
+          allow-dependencies-licenses: "pkg:pypi/aiohappyeyeballs, pkg:pypi/typing-extensions, pkg:pypi/matplotlib, pkg:pypi/protobuf"
 
       - name: Valider le registre des exceptions de sécurité
         shell: bash
