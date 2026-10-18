@@ -1,0 +1,154 @@
+"""Tableaux de bord Grafana : structure et exécution des requêtes sous `p5test_grafana`."""
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from grafana_sql import (
+    iter_panel_queries,
+    iter_panels,
+    load_dashboards,
+    render_macros,
+)
+from sqlalchemy import select, text
+
+from app.db.models import ApiRequest, User
+
+DATASOURCE = {"type": "grafana-postgresql-datasource", "uid": "p5-postgres"}
+FED_PANELS = {
+    "Requêtes",
+    "Taux 5xx",
+    "Taux 4xx",
+    "Latence p95",
+    "Utilisateurs authentifiés",
+    "Requêtes par minute",
+    "Latence par route",
+    "Par route",
+    "20 dernières erreurs",
+}
+
+
+def _window():
+    now = datetime.now(UTC)
+    return now - timedelta(days=1), now + timedelta(hours=1)
+
+
+def _all_queries():
+    return [q for d in load_dashboards().values() for q in iter_panel_queries(d)]
+
+
+def _panel_rows(conn, title):
+    start, end = _window()
+    (sql,) = [q for t, q in _all_queries() if t == title]
+    return conn.execute(text(render_macros(sql, start, end))).all()
+
+
+def test_render_macros():
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    end = datetime(2026, 10, 2, tzinfo=UTC)
+    out = render_macros(
+        "WHERE $__timeFilter(created_at) GROUP BY $__timeGroupAlias(created_at, 1m)",
+        start,
+        end,
+    )
+    assert (
+        "created_at BETWEEN '2026-10-01T00:00:00+00:00' AND '2026-10-02T00:00:00+00:00'"
+        in out
+    )
+    assert (
+        'to_timestamp(floor(extract(epoch FROM created_at) / 60) * 60) AS "time"' in out
+    )
+    assert "$__" not in out
+
+
+@pytest.mark.parametrize("unit,seconds", [("5m", 300), ("1h", 3600), ("1d", 86400)])
+def test_render_macros_intervals(unit, seconds):
+    out = render_macros(f"$__timeGroupAlias(t, {unit})", _window()[0], _window()[1])
+    assert f"/ {seconds}) * {seconds})" in out
+
+
+@pytest.mark.parametrize(
+    "sql", ["$__timeFrom()", "WHERE x = $route", "$__unixEpochFilter(t)"]
+)
+def test_render_macros_rejects_unknown(sql):
+    with pytest.raises(ValueError, match="non prise en charge"):
+        render_macros(sql, *_window())
+
+
+def test_dashboards_structure():
+    dashboards = load_dashboards()
+    assert {d["uid"] for d in dashboards.values()} >= {"p5-api"}
+    assert len({d["uid"] for d in dashboards.values()}) == len(dashboards)
+    for name, dash in dashboards.items():
+        assert dash["title"], name
+        assert dash["time"] == {"from": "now-24h", "to": "now"}, name
+        assert dash["refresh"] == "30s", name
+        for panel in iter_panels(dash):
+            assert panel["datasource"] == DATASOURCE, (name, panel["title"])
+            assert panel["targets"], (name, panel["title"])
+            for target in panel["targets"]:
+                assert target["rawQuery"] is True
+                assert target["format"] in {"table", "time_series"}
+                assert target["rawSql"].strip()
+
+
+@pytest.fixture
+def monitoring_data(grafana_conn):
+    """Trafic API de la dernière heure (sous le rôle propriétaire)."""
+    now = datetime.now(UTC)
+    calls = (
+        [("/model/predict", 200, 15)] * 6
+        + [("/buildings/28", 200, 40), ("/model/list", 401, 3)]
+        + [("/buildings/999", 404, 6), ("/model/predict/compare", 503, 15600)]
+    )
+    with grafana_conn.owner() as s:
+        user_id = s.scalar(select(User.id).where(User.username == "johndoe"))
+        for i, (path, status, ms) in enumerate(calls):
+            s.add(
+                ApiRequest(
+                    request_id=uuid.uuid4(),
+                    user_id=None if status == 401 else user_id,
+                    method="POST" if path.startswith("/model/predict") else "GET",
+                    path=path,
+                    status_code=status,
+                    duration_ms=ms,
+                    created_at=now - timedelta(minutes=i),
+                )
+            )
+        # Requête en cours (ou plantée avant la finalisation) : ni statut ni durée.
+        s.add(
+            ApiRequest(
+                request_id=uuid.uuid4(), method="GET", path="/buildings", created_at=now
+            )
+        )
+        s.commit()
+    return {"finished": len(calls)}
+
+
+def test_panel_queries_run_on_empty_database(grafana_conn):
+    conn = grafana_conn.as_grafana()
+    for title, sql in _all_queries():
+        conn.execute(text(render_macros(sql, *_window()))).all()
+
+
+def test_panel_queries_run_under_grafana_role(grafana_conn, monitoring_data):
+    conn = grafana_conn.as_grafana()
+    fed = set()
+    for title, sql in _all_queries():
+        rows = conn.execute(text(render_macros(sql, *_window()))).all()
+        if rows and any(v is not None for v in rows[0]):
+            fed.add(title)
+    assert FED_PANELS <= fed, FED_PANELS - fed
+
+
+def test_api_error_rate_ignores_unfinished_requests(grafana_conn, monitoring_data):
+    conn = grafana_conn.as_grafana()
+    ((rate,),) = _panel_rows(conn, "Taux 5xx")
+    assert float(rate) == pytest.approx(10.0)
+
+
+def test_routes_grouped_by_id(grafana_conn, monitoring_data):
+    conn = grafana_conn.as_grafana()
+    routes = {row[0] for row in _panel_rows(conn, "Par route")}
+    assert "/buildings/{id}" in routes
+    assert "/buildings/28" not in routes
