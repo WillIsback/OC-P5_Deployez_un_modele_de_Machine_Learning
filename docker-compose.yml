@@ -44,6 +44,7 @@ services:
       P5_OWNER_PASSWORD: ${P5_OWNER_PASSWORD:?définir P5_OWNER_PASSWORD dans .env}
       P5_API_PASSWORD: ${P5_API_PASSWORD:?définir P5_API_PASSWORD dans .env}
       P5_MLFLOW_PASSWORD: ${P5_MLFLOW_PASSWORD:?définir P5_MLFLOW_PASSWORD dans .env}
+      P5_GRAFANA_PASSWORD: ${P5_GRAFANA_PASSWORD:?définir P5_GRAFANA_PASSWORD dans .env}
       TRAINING_YEAR: ${TRAINING_YEAR:-2016}
       # L'uid de l'hôte n'existe pas dans l'image : sans HOME inscriptible, ~/.cache
       # vaut /.cache et l'évaluation Kumo échoue (repli silencieux sur CatBoost).
@@ -62,6 +63,33 @@ services:
     # /app n'est pas inscriptible par l'uid de l'hôte) : jetables.
     tmpfs:
       - /app/catboost_info
+
+  # Monitoring : tableaux de bord « API » et « Modèle » lus dans la base avec le
+  # rôle p5_grafana (lecture seule). Sans état : datasource et tableaux de bord
+  # viennent de ./grafana/provisioning (versionné). Connexion admin obligatoire.
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?définir GRAFANA_ADMIN_PASSWORD dans .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/api.json
+      # Lu par grafana/provisioning/datasources/postgres.yml.
+      P5_GRAFANA_PASSWORD: ${P5_GRAFANA_PASSWORD:?définir P5_GRAFANA_PASSWORD dans .env}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   pgdata:

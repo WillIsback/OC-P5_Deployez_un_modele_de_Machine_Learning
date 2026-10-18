@@ -47,7 +47,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle).
 
-**Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API) et `5432` (PostgreSQL) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 …`.
+**Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API), `5432` (PostgreSQL) et `3000` (Grafana) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 GRAFANA_PORT=13000 …`.
 
 ### 🐳 Utilisateurs — image Docker
 
