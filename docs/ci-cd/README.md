@@ -2,17 +2,7 @@
 
 ## 📊 Diagramme du flux de travail
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/workflow.svg">
-  <img alt="Diagramme CI/CD" src="../diagrams/workflow.svg" width="100%">
-</picture>
-
-> Diagramme généré avec [D2](https://d2lang.com/) — source : [`docs/diagrams/workflow.d2`](../diagrams/workflow.d2)
->
-> ⚠️ Le diagramme D2/SVG est obsolète : il ne représente ni `ci-model-performance`, ni le workflow `base-image`, ni le smoke test de `gate-container-scan`. Le diagramme Mermaid ci-dessous fait foi en attendant sa régénération.
-
-<details>
-<summary>Afficher le diagramme Mermaid (fallback)</summary>
+> Diagramme Mermaid, rendu nativement par GitHub.
 
 ```mermaid
 graph TD
@@ -38,9 +28,9 @@ graph TD
     G2 -->|PASS| Publish
     Publish --> Release["Notes de release → tag vX.Y.Z → GitHub Release"]
     Publish --> Docker["Retag de l'image scannée (même digest)<br/>+ SBOM + provenance"]
+    Release --> Prod["Environnement GitHub production<br/>(historique des déploiements)"]
+    Docker --> Prod
 ```
-
-</details>
 
 ---
 
@@ -50,7 +40,7 @@ graph TD
 
 | Workflow | Nom de job (check context) | Responsabilité |
 |----------|---------------------------|----------------|
-| `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, validation du titre de PR (regex Conventional Commits, pas commitlint), hadolint, actionlint, zizmor (voir ci-dessous), lockfile |
+| `ci-code-quality.yml` | `ci-code-quality` | Lint (ruff), format, validation du titre de PR (regex Conventional Commits, pas commitlint), hadolint, actionlint, zizmor (voir ci-dessous), lockfile, synchronisation de `requirements*.txt` avec `uv.lock` |
 | `ci-test.yml` | `ci-test` | Tests unitaires + couverture (service PostgreSQL), seuil global 98 % (bloquant, `fail_under` dans `pyproject.toml`), seuil incrémental 90 % (bloquant), dry-run applicatif, matrice Python 3.12/3.13 |
 | `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)`, `Synthèse de sécurité` (pas de job `ci-security`) | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
@@ -98,8 +88,8 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 | `detect` | Calcule la version semver depuis le dernier tag Git (max des bumps). Seuls `feat`, `fix`, `perf` ou un breaking change `type!:` déclenchent une release ; sinon `version=skipped`. Un commit HEAD dont le sujet contient `[skip release]` court-circuite tout |
 | `wait-base-image` | Si le push a modifié les dépendances (`pyproject.toml`, `uv.lock`, `Dockerfile.base`), attend la fin du run `base-image` du même commit avant de construire l'image applicative |
 | `gate-version-consistency` | Vérifie que le tag n'existe pas (local et distant) et que la version avance ; écart avec `pyproject.toml` seulement signalé |
-| `gate-container-scan` | Build l'image Docker **une seule fois** (poussée en `<version>-candidate` hors dry-run), **smoke test** (import de `psycopg`, `sqlalchemy`, `alembic`, `app.main` dans l'image), scan Trivy (seuil CRITICAL, bloquant) ; HEALTHCHECK, utilisateur et taille seulement affichés (non bloquants) |
-| `publish` | CHANGELOG (notes) → tag `vX.Y.Z` → GitHub Release → retag de l'image scannée en `vX.Y.Z`/`vX.Y`/`latest` (`docker buildx imagetools create`, **même digest**) → `attest-build-provenance` |
+| `gate-container-scan` | Build l'image Docker **une seule fois** (`APP_VERSION` = version calculée, affichée par l'OpenAPI) (poussée en `<version>-candidate` hors dry-run), **smoke test** (import de `psycopg`, `sqlalchemy`, `alembic`, `app.main` dans l'image), scan Trivy (seuil CRITICAL, bloquant) ; HEALTHCHECK, utilisateur et taille seulement affichés (non bloquants) |
+| `publish` | Environnement GitHub `production`. CHANGELOG (notes) → tag `vX.Y.Z` → GitHub Release → retag de l'image scannée en `vX.Y.Z`/`vX.Y`/`latest` (`docker buildx imagetools create`, **même digest**) → `attest-build-provenance` |
 | `notify-failure` | Si un job échoue sur un `push` : poste un commentaire récapitulatif sur la PR associée au commit, ou à défaut sur le commit |
 
 > L'input `dry_run` (`true` par défaut) exécute `detect` et les gates mais **ne publie rien** (ni tag, ni release, ni image) ; seul un dispatch avec `dry_run: false` publie (voir [runbook de release](../release/README.md)).
@@ -114,6 +104,23 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 
 **Course base-image / release au merge (résolue)** : `base-image.yml` et `release.yml` démarrent en parallèle sur le même push. Le job `wait-base-image` de `release.yml` détecte le run `base-image` du même commit et **attend sa fin** : `gate-container-scan` construit donc toujours à partir d'une `:base` à jour. Le smoke test reste un filet de sécurité.
 
+
+---
+
+## 🌍 Environnements
+
+Les trois environnements partagent le même code ; ils diffèrent par leur configuration (variables d'environnement, fichiers Compose, base et rôles). L'image publiée en production est exactement celle construite et scannée par `gate-container-scan` (même digest).
+
+| | Développement | Test | Production |
+|-|---------------|------|------------|
+| Lancement | `scripts/quickstart.sh --source` ou `uv run fastapi dev app/main.py` | `ci-test.yml` (ou `uv run pytest` en local) | `curl … quickstart.sh \| bash` |
+| Image | Construite depuis les sources (`docker-compose.override.yml`, `./models` monté), version `dev` | — | `ghcr.io/…:vX.Y.Z`, publiée par `release.yml` |
+| Base | `p5` locale | Service `postgres:17-alpine`, base `p5_test`, rôles préfixés `p5test`, `REQUIRE_TEST_DB=1` | `p5` dans le volume Docker |
+| Secrets | `.env` copié de `.example.env` (valeurs de démonstration) | Mots de passe éphémères du service CI | `.env` aux secrets générés aléatoirement par le Quickstart |
+| Comptes de démo | Oui (`P5_SEED_DEMO_USERS=1`) | Créés par les fixtures | Jamais |
+| Environnement GitHub | — | — | `production` (job `publish`) |
+
+**Secrets GitHub** : `GITHUB_TOKEN` (release, GHCR ; permissions minimales par job), `VLLM_URL`, `VLLM_API_KEY`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` (revue IA). Un secret propre au déploiement (par exemple les identifiants d'un hôte cible) se déclare dans l'environnement `production`, où des règles de protection (approbation, branches autorisées) peuvent s'ajouter sans modifier le workflow.
 
 ---
 
@@ -134,16 +141,3 @@ Sérialisation stricte via `concurrency.group: release-main` (pas de releases en
 - [Politique de version sémantique](../policies/semver.md)
 - [Politique des gates de sécurité](../policies/security-gates.md)
 - [Action de revue de code IA `code-review`](https://github.com/WillIsback/code-review) — revue de PR + triage d'issues
-- [Source D2 du diagramme](../diagrams/workflow.d2)
-
----
-
-## 🛠️ Génération du diagramme
-
-```bash
-# Installer D2 (macOS / Linux)
-brew install d2
-
-# Régénérer le SVG
-d2 docs/diagrams/workflow.d2 docs/diagrams/workflow.svg --theme 6 --layout dagre --dark-theme 5
-```

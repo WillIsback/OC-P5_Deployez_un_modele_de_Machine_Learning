@@ -325,6 +325,8 @@ jobs:
           push: ${{ github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true') }}
           load: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run == true || inputs.dry_run == 'true') }}
           tags: ${{ steps.image.outputs.name }}:${{ needs.detect.outputs.version }}-candidate
+          build-args: |
+            APP_VERSION=${{ needs.detect.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: ${{ (github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true')) && 'mode=max' || 'false' }}
@@ -410,6 +412,11 @@ jobs:
       && (github.event_name != 'workflow_dispatch' || (inputs.dry_run != true && inputs.dry_run != 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Environnement GitHub « production » : historise chaque déploiement et
+    # permet d'y attacher règles de protection et secrets propres.
+    environment:
+      name: production
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.detect.outputs.version }}
 
     permissions:
       contents: write

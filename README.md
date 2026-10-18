@@ -41,7 +41,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 | **Qualité & tests** | [uv](https://github.com/astral-sh/uv), ruff, pytest + pytest-cov, diff-cover, SonarCloud |
 | **CI/CD** | GitHub Actions, release semver automatique, revue de code IA |
 | **Sécurité** | CodeQL, Trivy, Gitleaks, Dependency Review, hadolint, actionlint, zizmor |
-| **Documentation** | Markdown, diagrammes [D2](https://d2lang.com/) |
+| **Documentation** | Markdown, diagrammes Mermaid, OpenAPI (Swagger / ReDoc) |
 
 ---
 
@@ -105,6 +105,7 @@ Toutes les routes, la saisie libre des features et les codes d'erreur : [`docs/a
 ```bash
 # Installer les dépendances
 uv sync
+# … ou, sans uv : pip install -r requirements.txt (exporté de uv.lock, vérifié en CI)
 
 # Lancer l'application en mode développement (http://localhost:8000) : nécessite
 # la base provisionnée par le Quickstart développeur (modèles livrés dans models/)
@@ -250,7 +251,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 ### 1. Dépôt Git structuré
 
 - Code source complet
-- `pyproject.toml` / `uv.lock` (dépendances gérées par uv, pas de `requirements.txt`)
+- `pyproject.toml` / `uv.lock` (dépendances gérées par uv) et `requirements.txt` / `requirements-dev.txt` exportés pour pip, synchronisés par la CI
 - Historique de commits clair (branches, tags, Conventional Commits)
 - README complet
 
@@ -258,7 +259,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 
 - Développée avec **FastAPI**
 - Expose le modèle de ML via des endpoints REST
-- Documentation intégrée (Swagger / OpenAPI)
+- Documentation intégrée (Swagger `/docs`, ReDoc `/redoc`, OpenAPI `/openapi.json`) : titre, description, version de release, tags
 - Endpoints, schémas de données, exemples d'appels
 - Interface de démonstration Gradio, cliente de l'API ([`docs/ui/README.md`](docs/ui/README.md))
 
@@ -279,7 +280,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 ### 5. Pipeline CI/CD
 
 - Configuration complète dans `.github/workflows/`
-- Configuration par variables d'environnement (`.env` en local, services Docker Compose `api` / `tools`) ; pas d'environnements GitHub dev/test/prod distincts
+- Environnements développement, test et production séparés par configuration ; job de publication rattaché à l'environnement GitHub `production` ([détail](docs/ci-cd/README.md#-environnements))
 - Intégration des secrets
 - Rulesets GitHub (branches + tags)
 
