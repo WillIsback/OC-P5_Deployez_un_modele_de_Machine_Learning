@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from synth import make_synth
 
+from app.schemas.api import FEATURE_COLUMNS
 from app.training import data_processing as dp
 from app.training.pipeline import (
     COARSE_GRID,
@@ -193,6 +194,22 @@ def test_pipeline_fine_tune_penalizes_overkill_and_trains_final(tmp_path):
         assert pipe.models[target] is not None
 
 
+def test_train_final_exports_training_set_as_kumo_context(tmp_path):
+    pipe = TrainPipeline(df_raw=make_synth(160), cv_splits=2, output_dir=tmp_path)
+    pipe.split().feature_engineering()
+    pipe.best_params = {
+        t: {**{k: v[0] for k, v in TINY_GRID.items()}, "n_trees": 0} for t in dp.TARGETS
+    }
+    pipe.train_final()
+    context = pd.read_csv(tmp_path / "kumo_context.csv")
+    assert list(context.columns) == FEATURE_COLUMNS + dp.TARGET_COLUMNS
+    # Exactement le train de CatBoost : aucun bâtiment de test.
+    assert len(context) == len(pipe.X_train)
+    np.testing.assert_allclose(
+        context[dp.TARGET_COLUMNS].to_numpy(), pipe.Y_train.to_numpy()
+    )
+
+
 def _cand(medape, r2, gap, overkill, n_trees, depth):
     return {
         "MedAPE_val": medape,
@@ -339,7 +356,7 @@ def test_pipeline_run_falls_back_when_kumo_fails(tmp_path, monkeypatch):
         },
     )
 
-    def boom(X, target):
+    def boom(X, target, context_path=None):
         raise RuntimeError("kumo indisponible")
 
     monkeypatch.setattr(kumo_service, "predict_batch", boom, raising=False)
@@ -435,9 +452,13 @@ def test_pipeline_run_logs_kumo_runs(tmp_path, monkeypatch):
     from app.training import pipeline as pl
 
     monkeypatch.setattr(pl, "COARSE_GRID", TINY_GRID)
-    monkeypatch.setattr(
-        kumo_service, "predict_batch", lambda X, target: np.full(len(X), 1000.0)
-    )
+    seen = []
+
+    def fake_predict(X, target, context_path=None):
+        seen.append(context_path)
+        return np.full(len(X), 1000.0)
+
+    monkeypatch.setattr(kumo_service, "predict_batch", fake_predict)
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
     pipe = TrainPipeline(
         df_raw=make_synth(140),
@@ -448,6 +469,8 @@ def test_pipeline_run_logs_kumo_runs(tmp_path, monkeypatch):
     metrics = pipe.run(include_kumo=True)
     for target in dp.TARGETS:
         assert set(metrics[target]["models"]) == {"catboost", "kumo"}
+    # Kumo est évalué avec le contexte exporté par ce même entraînement.
+    assert seen == [tmp_path / "kumo_context.csv"] * len(dp.TARGETS)
 
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment = client.get_experiment_by_name("seattle-energy")

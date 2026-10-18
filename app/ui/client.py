@@ -119,6 +119,6 @@ def _detail(response: httpx.Response) -> str:
 def default_client() -> ApiClient:
     return ApiClient(
         httpx.Client(
-            base_url=os.getenv("P5_API_URL", "http://localhost:8080"), timeout=60
+            base_url=os.getenv("P5_API_URL", "http://localhost:8080"), timeout=120
         )
     )

@@ -8,9 +8,10 @@ WORKDIR /app
 # Copier le code applicatif (les deps sont déjà dans /app/.venv via l'image de base).
 COPY --chown=appuser:appuser app/ ./app/
 
-# Modèle entraîné livré (version `baseline`) : l'image sert l'API sans montage ni
-# entraînement. En développement, docker-compose.override.yml monte ./models par-dessus.
-COPY --chown=appuser:appuser models/energy.cbm models/emissions.cbm models/scores.json ./models/
+# Modèle entraîné livré (version `baseline`) et contexte Kumo (son jeu
+# d'entraînement) : l'image sert l'API sans montage ni entraînement. En
+# développement, docker-compose.override.yml monte ./models par-dessus.
+COPY --chown=appuser:appuser models/energy.cbm models/emissions.cbm models/scores.json models/kumo_context.csv ./models/
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

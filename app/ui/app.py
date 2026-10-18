@@ -334,7 +334,7 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
                     year_dd = gr.Dropdown(label="Année", choices=[])
                     with_kumo = gr.Checkbox(
                         label="Comparer avec Kumo-Tabular",
-                        info="Le premier appel peut prendre ~15 s.",
+                        info="Calcul plus long (~1 min sur CPU) : Kumo relit tout le jeu d'entraînement.",
                     )
                     predict_btn = gr.Button(
                         "Prédire", variant="primary", interactive=False
