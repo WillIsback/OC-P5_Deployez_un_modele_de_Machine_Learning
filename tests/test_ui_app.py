@@ -154,7 +154,8 @@ def test_pagination_bounds(offset, step, expected):
 def test_select_building_fills_card():
     evt = SimpleNamespace(row_value=[28, "GRAHAM HILL", "SOUTHEAST"])
     out = ui.on_select(FakeClient(), logged_state(), evt)
-    state, card_md, year_dd, predict_btn, result_md, error_md = out[0], *out[4:]
+    state = out[0]
+    card_md, year_dd, predict_btn, result_md, error_md = out[4:]
     assert state["building"] == DETAIL
     assert card_md == building_card(DETAIL)
     assert year_dd["choices"] == [2016, 2019] and year_dd["value"] == 2019
@@ -214,7 +215,7 @@ def test_logout_clears_password():
 
 
 def test_build_app_and_light_theme():
-    demo = ui.build_app(lambda: FakeClient())
+    demo = ui.build_app(FakeClient)
     assert isinstance(demo, gr.Blocks)
     assert "__theme" in ui.LAUNCH_OPTIONS["js"] and "light" in ui.LAUNCH_OPTIONS["js"]
     assert ui.LAUNCH_OPTIONS["footer_links"] == []
@@ -236,7 +237,7 @@ def test_build_app_wires_events_without_warning():
 
     with warnings.catch_warnings():
         warnings.filterwarnings("error", category=UserWarning, module=r"gradio\.")
-        ui.build_app(lambda: FakeClient())
+        ui.build_app(FakeClient)
 
 
 def test_select_building_error_banner():
@@ -247,7 +248,7 @@ def test_select_building_error_banner():
 
 def test_row_selection_is_wired_to_on_select():
     """Le clic sur une ligne du tableau appelle on_select avec l'événement."""
-    demo = ui.build_app(lambda: FakeClient())
+    demo = ui.build_app(FakeClient)
     (select_row,) = [f.fn for f in demo.fns.values() if f.name == "select_row"]
     out = select_row(logged_state(), SimpleNamespace(row_value=[28, "GRAHAM HILL"]))
     assert out[0]["building"] == DETAIL
@@ -271,7 +272,7 @@ def test_results_table_is_plain():
     """Tableau épuré : sans barre d'outils, police du texte courant (pas de
     chasse fixe, qui tronquait la colonne « Quartier »). Pas de column_widths
     en pourcentages : le tableau se redimensionnait en boucle."""
-    demo = ui.build_app(lambda: FakeClient())
+    demo = ui.build_app(FakeClient)
     (table,) = [b for b in demo.blocks.values() if isinstance(b, gr.Dataframe)]
     assert table.buttons == []
     assert not table.column_widths
@@ -298,7 +299,7 @@ def test_no_run_history_nor_public_api():
     de passe) dans le localStorage (/gradio_api/runs) et expose chaque événement
     en API publique : les deux sont désactivés."""
     assert ui.LAUNCH_OPTIONS["run_history"] is False
-    demo = ui.build_app(lambda: FakeClient())
+    demo = ui.build_app(FakeClient)
     assert {f.api_visibility for f in demo.fns.values()} == {"private"}
 
 
