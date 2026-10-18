@@ -39,6 +39,22 @@ API_GRANTS = (
     "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO {api}",
 )
 
+# Droits du rôle Grafana (spec monitoring §3.3) : lecture seule, par colonne ;
+# ni corps de requête, ni IP, ni PII, ni cibles réelles hors de la vue.
+GRAFANA_GRANTS = (
+    "GRANT USAGE ON SCHEMA public TO {grafana}",
+    (
+        "GRANT SELECT (id, user_id, method, path, status_code, duration_ms,"
+        " created_at) ON api_requests TO {grafana}"
+    ),
+    (
+        "GRANT SELECT (id, api_request_id, building_year_id, model_id,"
+        " energy_use_kbtu, ghg_emissions_tco2e, predicted_at)"
+        " ON predictions TO {grafana}"
+    ),
+    "GRANT SELECT ON ml_models, v_projected_evaluation TO {grafana}",
+)
+
 DEMO_USERS = (
     {
         "username": "johndoe",
@@ -66,10 +82,13 @@ class Roles:
     owner: str
     api: str
     mlflow: str
+    grafana: str
 
     @classmethod
     def with_prefix(cls, prefix: str) -> Roles:
-        return cls(f"{prefix}_owner", f"{prefix}_api", f"{prefix}_mlflow")
+        return cls(
+            f"{prefix}_owner", f"{prefix}_api", f"{prefix}_mlflow", f"{prefix}_grafana"
+        )
 
 
 def dsn(url: str, **overrides: object) -> str:
@@ -113,13 +132,16 @@ def run_migrations(owner_url: str) -> None:
 
 def _apply_grants(admin_url: str, db_name: str, roles: Roles) -> None:
     with psycopg.connect(dsn(admin_url, database=db_name), autocommit=True) as conn:
-        conn.execute(
-            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                sql.Identifier(db_name), sql.Identifier(roles.api)
+        for role in (roles.api, roles.grafana):
+            conn.execute(
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+                    sql.Identifier(db_name), sql.Identifier(role)
+                )
             )
-        )
         for stmt in API_GRANTS:
             conn.execute(sql.SQL(stmt).format(api=sql.Identifier(roles.api)))
+        for stmt in GRAFANA_GRANTS:
+            conn.execute(sql.SQL(stmt).format(grafana=sql.Identifier(roles.grafana)))
 
 
 def seed(session: Session, *, demo_users: bool = False) -> None:
@@ -158,6 +180,7 @@ def provision(
         _ensure_role(conn, roles.owner, passwords["owner"])
         _ensure_role(conn, roles.api, passwords["api"])
         _ensure_role(conn, roles.mlflow, passwords["mlflow"])
+        _ensure_role(conn, roles.grafana, passwords["grafana"])
         _ensure_database(conn, db_name, roles.owner)
         _ensure_database(conn, mlflow_db, roles.mlflow)
     owner_url = (
@@ -195,6 +218,7 @@ def main(argv: list[str] | None = None) -> None:
         "owner": os.environ["P5_OWNER_PASSWORD"],
         "api": os.environ["P5_API_PASSWORD"],
         "mlflow": os.environ["P5_MLFLOW_PASSWORD"],
+        "grafana": os.environ["P5_GRAFANA_PASSWORD"],
     }
     provision(
         os.environ["DATABASE_ADMIN_URL"], passwords=passwords, demo_users=demo_users

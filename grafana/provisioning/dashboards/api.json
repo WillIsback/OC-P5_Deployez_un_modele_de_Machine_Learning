@@ -1,0 +1,459 @@
+{
+  "uid": "p5-api",
+  "title": "P5 — API",
+  "description": "Santé du service : volume, erreurs, latence (table api_requests).",
+  "tags": [
+    "p5"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requêtes",
+      "type": "stat",
+      "description": "Appels reçus sur la période (toutes routes).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Requêtes\"\nFROM api_requests\nWHERE $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 2,
+      "title": "Taux 5xx",
+      "type": "stat",
+      "description": "Part des requêtes terminées en erreur serveur (modèle ou base indisponible).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT 100.0 * avg((status_code >= 500)::int) AS \"Taux 5xx\"\nFROM api_requests\nWHERE $__timeFilter(created_at) AND status_code IS NOT NULL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 3,
+      "title": "Taux 4xx",
+      "type": "stat",
+      "description": "Part des requêtes refusées (authentification, bâtiment inconnu, saisie invalide).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT 100.0 * avg((status_code BETWEEN 400 AND 499)::int) AS \"Taux 4xx\"\nFROM api_requests\nWHERE $__timeFilter(created_at) AND status_code IS NOT NULL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 4,
+      "title": "Latence p95",
+      "type": "stat",
+      "description": "95 % des requêtes répondent en moins de ce temps.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS \"Latence p95\"\nFROM api_requests\nWHERE $__timeFilter(created_at) AND duration_ms IS NOT NULL"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 5,
+      "title": "Utilisateurs authentifiés",
+      "type": "stat",
+      "description": "Utilisateurs distincts ayant appelé l'API avec un jeton valide.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT user_id) AS \"Utilisateurs\"\nFROM api_requests\nWHERE $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 6,
+      "title": "Requêtes par minute",
+      "type": "timeseries",
+      "description": "Volume par classe de statut HTTP.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, 1m),\n  count(*) FILTER (WHERE status_code < 400) AS \"2xx/3xx\",\n  count(*) FILTER (WHERE status_code BETWEEN 400 AND 499) AS \"4xx\",\n  count(*) FILTER (WHERE status_code >= 500) AS \"5xx\"\nFROM api_requests\nWHERE $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 7,
+      "title": "Latence par route",
+      "type": "timeseries",
+      "description": "Latence médiane et p95 par route (fenêtres de 5 min). Le premier appel à /compare inclut le chargement de Kumo.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "WITH r AS (\n  SELECT $__timeGroupAlias(created_at, 5m), regexp_replace(path, '/[0-9]+(/|$)', '/{id}\\1', 'g') AS route, duration_ms\n  FROM api_requests\n  WHERE $__timeFilter(created_at) AND duration_ms IS NOT NULL\n)\nSELECT \"time\", route || ' p50' AS metric,\n  percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms) AS value\nFROM r GROUP BY 1, 2\nUNION ALL\nSELECT \"time\", route || ' p95',\n  percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)\nFROM r GROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 8,
+      "title": "Par route",
+      "type": "table",
+      "description": "Identifiants regroupés (/buildings/{id}).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT regexp_replace(path, '/[0-9]+(/|$)', '/{id}\\1', 'g') AS \"Route\",\n  count(*) AS \"Appels\",\n  round(100.0 * avg((status_code >= 400)::int), 1) AS \"% erreurs\",\n  percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) AS \"p95 (ms)\",\n  max(duration_ms) AS \"max (ms)\"\nFROM api_requests\nWHERE $__timeFilter(created_at)\nGROUP BY 1\nORDER BY 2 DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    },
+    {
+      "id": 9,
+      "title": "20 dernières erreurs",
+      "type": "table",
+      "description": "Sans corps de requête ni IP : le rôle Grafana n'y a pas accès.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "p5-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "p5-postgres"
+          },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT created_at AS \"Date\", method AS \"Méthode\", path AS \"Route\",\n  status_code AS \"Code\", duration_ms AS \"Durée (ms)\"\nFROM api_requests\nWHERE $__timeFilter(created_at) AND status_code >= 400\nORDER BY created_at DESC\nLIMIT 20"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "pluginVersion": "12.4.3"
+    }
+  ]
+}

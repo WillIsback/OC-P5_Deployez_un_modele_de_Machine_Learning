@@ -35,6 +35,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 | **Modèle** | [CatBoost](https://catboost.ai/) multi-cible (énergie, émissions), scikit-learn, pandas ; comparaison zero-shot Kumo-Tabular ([structured-data-models](https://github.com/NVIDIA/structured-data-models), PyTorch CPU) |
 | **Suivi des expériences** | [MLflow](https://mlflow.org/) (métadonnées dans PostgreSQL) |
 | **Base de données** | PostgreSQL 17, SQLAlchemy 2, Alembic (migrations), psycopg 3 |
+| **Monitoring** | [Grafana](https://grafana.com/oss/grafana/) 12 (tableaux de bord provisionnés, datasource PostgreSQL) |
 | **Conteneurs** | Docker, Docker Compose, image publiée sur GHCR (modèle embarqué) |
 | **Qualité & tests** | [uv](https://github.com/astral-sh/uv), ruff, pytest + pytest-cov, diff-cover, SonarCloud |
 | **CI/CD** | GitHub Actions, release semver automatique, revue de code IA |
@@ -47,7 +48,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle).
 
-**Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API) et `5432` (PostgreSQL) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 …`.
+**Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API), `5432` (PostgreSQL) et `3000` (Grafana) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 GRAFANA_PORT=13000 …`.
 
 ### 🐳 Utilisateurs — image Docker
 
@@ -94,7 +95,7 @@ done
 {"building_id":36,"energy_use_kbtu":8614361.36,"ghg_emissions_tco2e":175.49}
 ```
 
-Toutes les routes, la saisie libre des features et les codes d'erreur : [`docs/api/README.md`](docs/api/README.md). Jetons, comptes et `SECRET_KEY` : [`docs/api/authentication.md`](docs/api/authentication.md). Documentation interactive : http://localhost:8080/docs.
+Toutes les routes, la saisie libre des features et les codes d'erreur : [`docs/api/README.md`](docs/api/README.md). Jetons, comptes et `SECRET_KEY` : [`docs/api/authentication.md`](docs/api/authentication.md). Documentation interactive : http://localhost:8080/docs. Monitoring : http://localhost:3000 (Grafana, `admin` / `GRAFANA_ADMIN_PASSWORD` dans `.env`), voir [`docs/monitoring/README.md`](docs/monitoring/README.md).
 
 ---
 
@@ -159,6 +160,8 @@ Lues depuis `.env` (copié de [`.example.env`](.example.env), ou généré par l
 | `P5_OWNER_PASSWORD` ⚠️ | Mot de passe de `p5_owner` | — |
 | `P5_API_PASSWORD` ⚠️ | Mot de passe de `p5_api` | — |
 | `P5_MLFLOW_PASSWORD` ⚠️ | Mot de passe de `p5_mlflow` | — |
+| `P5_GRAFANA_PASSWORD` ⚠️ | Mot de passe de `p5_grafana` (lecture seule, monitoring) | — |
+| `GRAFANA_ADMIN_PASSWORD` ⚠️ | Mot de passe du compte `admin` de Grafana | — |
 
 Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE_*` ne servent qu'en dehors de Compose (qui les construit lui-même).
 
@@ -169,6 +172,7 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 | `P5_IMAGE` | Image des services `api` et `tools` (ignorée depuis un clone) | `ghcr.io/…:latest` |
 | `API_PORT` | Port hôte de l'API | `8080` |
 | `DB_PORT` | Port hôte de PostgreSQL | `5432` |
+| `GRAFANA_PORT` | Port hôte de Grafana | `3000` |
 | `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./data`, `./models`, `./mlruns`) | `1000` / `1000` |
 | `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration (**jamais en production**) | `0` |
 
@@ -201,6 +205,7 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 | [Authentification](docs/api/authentication.md) | Jeton JWT, comptes de démonstration, `SECRET_KEY` |
 | [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows CI/IA/CD, sécurité du pipeline |
 | [Base de données](docs/db/README.md) | Schéma UML, choix techniques, rôles, mise en route, requêtes SQL |
+| [Monitoring](docs/monitoring/README.md) | Tableaux de bord Grafana « API » et « Modèle », droits du rôle `p5_grafana` |
 | [Entraînement](docs/training/README.md) | Réentraînement CatBoost multi-cible, Kumo, suivi MLflow, tests |
 | [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
 | [Runbook Release](docs/release/README.md) | Semver, gates CD, rollback, incidents |
@@ -262,6 +267,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 - Modèle de données documenté
 - Exemples d'entrées (inputs / outputs du modèle ML)
 - Scripts d'interrogation et d'interaction avec le modèle
+- Monitoring : tableaux de bord Grafana « API » et « Modèle » sur les traces en base ([`docs/monitoring/README.md`](docs/monitoring/README.md))
 
 ### 5. Pipeline CI/CD
 

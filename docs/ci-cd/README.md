@@ -55,7 +55,7 @@ graph TD
 | `ci-model-performance.yml` | `ci-model-performance` | Gate non-régression du modèle : compare `models/scores.json` (dernier entraînement) à `models/scores_baseline.json` (MedAPE +5 pts / R2 -0,05 par cible) |
 | `ci-security.yml` | `SCA (Dependency Review)`, `SAST (CodeQL)`, `Secret Leak (Gitleaks)`, `IaC / Dockerfile Scan (Trivy config)`, `Synthèse de sécurité` (pas de job `ci-security`) | SCA (dep-review + trivy fs), SAST (CodeQL), secret leak (Gitleaks), IaC (trivy config), commentaire de synthèse |
 | `ci-traceability.yml` | `ci-traceability` | Référence issue obligatoire (R1/R3), type de PR valide, cohérence semver (Q7) |
-| `ci-install.yml` | `ci-install (user)`, `ci-install (dev)` (non requis) | Rejoue tels quels les deux blocs « Quickstart » du README sur une VM vierge via `scripts/quickstart_test.sh` : `curl … \| bash` (image Docker ; construite depuis la PR sur `pull_request`/`push`, image GHCR publiée sur le cron hebdomadaire) et `git clone … && scripts/quickstart.sh --source`. Déclenché aussi sur `push` vers `main` et chaque lundi |
+| `ci-install.yml` | `ci-install (user)`, `ci-install (dev)` (non requis) | Rejoue tels quels les deux blocs « Quickstart » du README sur une VM vierge via `scripts/quickstart_test.sh` : `curl … \| bash` (image Docker ; construite depuis la PR sur `pull_request`/`push`, image GHCR publiée sur le cron hebdomadaire) et `git clone … && scripts/quickstart.sh --source`. La vérification du Quickstart inclut Grafana (santé, refus anonyme 401, datasource PostgreSQL `OK`). Déclenché aussi sur `push` vers `main` et chaque lundi |
 
 > Tous les workflows CI sont déclenchés sur `pull_request` vers `main` (et `workflow_dispatch`), avec une concurrence par ref et `cancel-in-progress: true`.
 >

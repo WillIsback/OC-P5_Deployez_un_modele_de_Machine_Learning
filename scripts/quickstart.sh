@@ -9,8 +9,9 @@
 #   scripts/quickstart.sh --source
 #
 # Étapes : configuration → image (pull ou build) → base PostgreSQL (create_db)
-# → ingestion des jeux 2016 et 2019 (téléchargés) → API → vérification (jeton,
-# recherche de 3 bâtiments, prédiction). Relançable : .env et la base sont conservés.
+# → ingestion des jeux 2016 et 2019 (téléchargés) → évaluation projetée 2019 →
+# API + Grafana → vérification (jeton, 3 bâtiments, prédiction, monitoring).
+# Relançable : .env et la base sont conservés.
 #
 # Variables :
 #   P5_DIR       dossier d'installation (mode image)      défaut : p5-energy
@@ -18,7 +19,7 @@
 #   P5_REF       branche/tag des fichiers téléchargés      défaut : main
 #   P5_RAW_BASE  source des fichiers (CI : file://…)       défaut : raw.githubusercontent.com
 #   P5_PULL=0    ne pas tirer l'image (image locale, CI)
-#   API_PORT / DB_PORT  ports hôte                         défaut : 8080 / 5432
+#   API_PORT / DB_PORT / GRAFANA_PORT  ports hôte          défaut : 8080 / 5432 / 3000
 
 # Tout est dans main() : avec `curl | bash`, bash lit le script sur stdin ; le
 # corps est ainsi entièrement lu avant qu'une commande ne puisse consommer stdin.
@@ -29,12 +30,13 @@ main() {
   local repo="WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning"
   local raw="${P5_RAW_BASE:-https://raw.githubusercontent.com/$repo/${P5_REF:-main}}"
   local api="http://localhost:${API_PORT:-8080}"
+  local grafana="http://localhost:${GRAFANA_PORT:-3000}"
   local mode=image
 
   case "${1:-}" in
     --source) mode=source ;;
     "") ;;
-    -h | --help) sed -n '2,21p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \{0,1\}//'; return 0 ;;
+    -h | --help) sed -n '2,22p' "${BASH_SOURCE[0]:-/dev/null}" 2>/dev/null | sed 's/^# \{0,1\}//'; return 0 ;;
     *) die "option inconnue : $1 (seule --source est acceptée)" ;;
   esac
 
@@ -50,16 +52,32 @@ main() {
   else
     mkdir -p "${P5_DIR:-p5-energy}" && cd "${P5_DIR:-p5-energy}"
     curl -fsSL "$raw/docker-compose.yml" -o docker-compose.yml
+    local file
+    for file in datasources/postgres.yml dashboards/dashboards.yml \
+      dashboards/api.json dashboards/model.json; do
+      mkdir -p "grafana/provisioning/$(dirname "$file")"
+      curl -fsSL "$raw/grafana/provisioning/$file" -o "grafana/provisioning/$file"
+    done
     if [ ! -f .env ]; then
       curl -fsSL "$raw/.example.env" -o .env.example
       generate_env <.env.example >.env
       rm -f .env.example
     fi
   fi
+  # Un .env édité sans saut de ligne final : sans lui, la clé ajoutée ci-dessous
+  # serait collée à la dernière valeur (secret corrompu).
+  [ -z "$(tail -c1 .env)" ] || echo >>.env
   # Uid/gid de l'hôte pour le service tools (écriture dans ./data), si absents.
   grep -q '^UID=' .env || printf 'UID=%s\nGID=%s\n' "$(id -u)" "$(id -g)" >>.env
+  # Secrets du monitoring, absents d'un .env antérieur : ajoutés sans toucher aux autres.
+  local key
+  for key in P5_GRAFANA_PASSWORD GRAFANA_ADMIN_PASSWORD; do
+    grep -q "^$key=" .env || printf '%s=%s\n' "$key" "$(rand)" >>.env
+  done
   # Créés par l'utilisateur, sinon Docker les crée au nom de root.
   mkdir -p data mlruns
+  # Grafana (uid 472) lit ce montage : lisible quel que soit l'umask (077 → 600).
+  chmod -R a+rX grafana
   info "dossier : $PWD"
 
   step "Image de l'API"
@@ -83,8 +101,11 @@ main() {
       --csv "data/${year}_Building_Energy_Benchmarking.csv" --download
   done
 
-  step "API"
-  docker compose up -d --wait api
+  step "Évaluation projetée 2019 (prédictions par lot, alimente le tableau « Modèle »)"
+  docker compose run --rm -T tools python -m app.db.evaluate --years 2019
+
+  step "API et monitoring"
+  docker compose up -d --wait api grafana
 
   step "Vérification"
   local token ids id res
@@ -101,11 +122,21 @@ main() {
     printf '    bâtiment %-6s %14.0f kBtu/an  %8.1f t CO2e/an\n' "$id" \
       "$(field energy_use_kbtu "$res")" "$(field ghg_emissions_tco2e "$res")"
   done
+  # Grafana : en service, fermé sans connexion, datasource joignable avec le rôle p5_grafana.
+  local pw status
+  pw=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env)
+  curl -fsS "$grafana/api/health" >/dev/null || die "Grafana ne répond pas sur $grafana"
+  status=$(curl -s -o /dev/null -w '%{http_code}' "$grafana/api/search")
+  [ "$status" = 401 ] || die "Grafana accessible sans connexion (HTTP $status, 401 attendu)"
+  curl -fsS -u "admin:$pw" "$grafana/api/datasources/uid/p5-postgres/health" \
+    | grep -q '"status":"OK"' || die "datasource PostgreSQL de Grafana en échec (rôle p5_grafana ?)"
+  info "monitoring : Grafana OK, datasource PostgreSQL OK"
 
   cat <<EOF
 
 $(printf '\033[1;32m')✅ API prête sur $api$(printf '\033[0m')
    Documentation interactive : $api/docs
+   Monitoring (Grafana)      : $grafana  (admin / GRAFANA_ADMIN_PASSWORD dans .env)
    Compte de démonstration   : johndoe / secret
    Arrêt                     : cd $PWD && docker compose down   (-v efface la base)
 EOF
@@ -121,9 +152,13 @@ rand() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
 # .example.env → .env : chaque secret de démonstration remplacé par une valeur
 # aléatoire (les URL qui les réutilisent restent cohérentes).
 generate_env() {
-  local secret pg owner apipw mlflow
+  local secret pg owner apipw mlflow grafana admin
   secret=$(rand) pg=$(rand) owner=$(rand) apipw=$(rand) mlflow=$(rand)
+  grafana=$(rand) admin=$(rand)
+  # Les clés les plus longues d'abord : change-me est un préfixe des autres.
   sed -e "s/ta_super_clef/$secret/" \
+    -e "s/change-me-grafana-admin/$admin/g" \
+    -e "s/change-me-grafana/$grafana/g" \
     -e "s/change-me-owner/$owner/g" \
     -e "s/change-me-api/$apipw/g" \
     -e "s/change-me-mlflow/$mlflow/g" \

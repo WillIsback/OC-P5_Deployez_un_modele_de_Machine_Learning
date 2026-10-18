@@ -75,8 +75,13 @@ def test_create_db_main_demo_users_opt_in(monkeypatch, argv, env, expected):
         calls.update(kwargs)
         return admin_url
 
-    for var in ("P5_OWNER_PASSWORD", "P5_API_PASSWORD", "P5_MLFLOW_PASSWORD"):
-        monkeypatch.setenv(var, "x")
+    for var in (
+        "P5_OWNER_PASSWORD",
+        "P5_API_PASSWORD",
+        "P5_MLFLOW_PASSWORD",
+        "P5_GRAFANA_PASSWORD",
+    ):
+        monkeypatch.setenv(var, var.lower())
     monkeypatch.setenv("DATABASE_ADMIN_URL", "postgresql+psycopg://u:p@h/db")
     if env is None:
         monkeypatch.delenv("P5_SEED_DEMO_USERS", raising=False)
@@ -85,6 +90,7 @@ def test_create_db_main_demo_users_opt_in(monkeypatch, argv, env, expected):
     monkeypatch.setattr(create_db, "provision", fake_provision)
     create_db.main(argv)
     assert calls["demo_users"] is expected
+    assert calls["passwords"]["grafana"] == "p5_grafana_password"
 
 
 def test_provision_is_idempotent(provisioned_db):

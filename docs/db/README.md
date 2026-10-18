@@ -134,6 +134,7 @@ Le diagramme résume les 17 features de `building_years` (identiques à celles d
 | `p5_owner` | `p5` | Propriétaire du schéma : migrations, `ingest`, entraînement, `evaluate` |
 | `p5_api` | `p5` | `SELECT` : `users`, `buildings`, `building_years`, `ml_models` ; `SELECT, INSERT, UPDATE` : `api_requests` ; `SELECT, INSERT` : `predictions` ; `USAGE` sur les séquences d'identité concernées |
 | `p5_mlflow` | `mlflow` | Propriétaire de la base `mlflow`, aucun droit sur `p5` |
+| `p5_grafana` | `p5` | Lecture seule, par colonne : `api_requests` (`id, user_id, method, path, status_code, duration_ms, created_at`), `predictions` (`id, api_request_id, building_year_id, model_id, energy_use_kbtu, ghg_emissions_tco2e, predicted_at`) ; `SELECT` : `ml_models`, `v_projected_evaluation`. Voir [`docs/monitoring/README.md`](../monitoring/README.md) |
 
 `building_actuals` reste inaccessible à l'API : les cibles réelles ne peuvent pas fuiter.
 

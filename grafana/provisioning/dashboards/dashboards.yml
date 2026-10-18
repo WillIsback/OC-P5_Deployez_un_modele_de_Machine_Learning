@@ -1,0 +1,11 @@
+# Tableaux de bord versionnés (*.json de ce dossier), non modifiables dans l'UI.
+apiVersion: 1
+
+providers:
+  - name: P5
+    type: file
+    folder: P5
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

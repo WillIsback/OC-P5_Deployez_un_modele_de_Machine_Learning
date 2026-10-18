@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
@@ -13,7 +14,7 @@ import pytest
 from catboost import CatBoostRegressor
 from fastapi.testclient import TestClient
 from psycopg import sql
-from sqlalchemy import create_engine
+from sqlalchemy import Connection, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -35,7 +36,12 @@ ADMIN_URL = os.getenv("TEST_DATABASE_ADMIN_URL") or (
 TEST_DB = "p5_test"
 TEST_MLFLOW_DB = "mlflow_test"
 TEST_PREFIX = "p5test"
-TEST_PASSWORDS = {"owner": "owner-test", "api": "api-test", "mlflow": "mlflow-test"}
+TEST_PASSWORDS = {
+    "owner": "owner-test",
+    "api": "api-test",
+    "mlflow": "mlflow-test",
+    "grafana": "grafana-test",
+}
 
 
 def db_unavailable(exc: Exception) -> NoReturn:
@@ -106,6 +112,40 @@ def db(owner_engine, monkeypatch):
     finally:
         trans.rollback()
         conn.close()
+
+
+@dataclass
+class GrafanaConn:
+    """Connexion de test : peupler en propriétaire, puis lire en `p5test_grafana`."""
+
+    conn: Connection
+    owner: sessionmaker
+
+    def as_grafana(self) -> Connection:
+        self.conn.execute(text(f"SET LOCAL ROLE {TEST_PREFIX}_grafana"))
+        return self.conn
+
+
+@pytest.fixture
+def grafana_conn(provisioned_db):
+    """Transaction annulée en fin de test, sur la connexion superutilisateur.
+
+    Les écritures passent par ``owner`` (rôle propriétaire) ; ``as_grafana()``
+    bascule ensuite la connexion sur le rôle Grafana (`SET LOCAL ROLE`).
+    """
+    engine = create_engine(make_url(ADMIN_URL).set(database=TEST_DB))
+    conn = engine.connect()
+    trans = conn.begin()
+    conn.execute(text(f"SET LOCAL ROLE {TEST_PREFIX}_owner"))
+    owner = sessionmaker(
+        bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False
+    )
+    try:
+        yield GrafanaConn(conn, owner)
+    finally:
+        trans.rollback()
+        conn.close()
+        engine.dispose()
 
 
 def train_demo_model(path: str, base: float) -> None:

@@ -1,0 +1,19 @@
+# Datasource PostgreSQL du monitoring (spec monitoring §3.2) : rôle p5_grafana,
+# lecture seule et droits par colonne (voir app/db/create_db.py, GRAFANA_GRANTS).
+apiVersion: 1
+
+datasources:
+  - name: P5 PostgreSQL
+    type: grafana-postgresql-datasource
+    uid: p5-postgres
+    url: db:5432
+    user: p5_grafana
+    isDefault: true
+    editable: false
+    jsonData:
+      database: p5
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: ${P5_GRAFANA_PASSWORD}

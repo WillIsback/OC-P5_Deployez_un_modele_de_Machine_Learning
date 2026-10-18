@@ -15,6 +15,7 @@ on:
       - "app/**"
       - "docker-compose.yml"
       - "docker-compose.override.yml"
+      - "grafana/**"
       - "models/**"
       - "Dockerfile"
       - "Dockerfile.base"
