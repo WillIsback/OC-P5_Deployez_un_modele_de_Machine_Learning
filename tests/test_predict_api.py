@@ -164,6 +164,22 @@ def test_compare_two_predictions_share_request_and_year(
     assert cb.model_id != km.model_id
 
 
+def test_compare_building_with_null_secondary_gfa(
+    client, db, auth_headers, demo_models
+):
+    """Bâtiment sans 2e/3e usage : Kumo doit répondre comme CatBoost (#62)."""
+    with db() as s:
+        year = add_year(s, 5, 2019)
+        year.second_largest_property_use_type_gfa = None
+        year.third_largest_property_use_type_gfa = None
+        s.commit()
+    r = client.post(
+        "/model/predict/compare", json={"building_id": 5}, headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["kumo_prediction"]["energy_use_kbtu"] > 0
+
+
 def test_model_failure_leaves_no_prediction_but_traces_request(
     client, db, auth_headers, buildings, monkeypatch
 ):
