@@ -28,7 +28,7 @@ ALL = "Tous"
 NEIGHBORHOODS = (
     "BALLARD",
     "CENTRAL",
-    "DELRIDGE",
+    "DELRIDGE NEIGHBORHOODS",
     "DOWNTOWN",
     "EAST",
     "GREATER DUWAMISH",
@@ -42,13 +42,16 @@ NEIGHBORHOODS = (
 )
 COLUMNS = ["ID", "Nom", "Quartier"]
 
+_FONT = ["Inter", "system-ui", "sans-serif"]
+
 # Thème clair forcé (même si le navigateur est en mode sombre) : gris neutres,
 # un seul accent bleu, sans ombres.
 _THEME = gr.themes.Base(
     primary_hue="blue",
     neutral_hue="slate",
     radius_size="sm",
-    font=["Inter", "system-ui", "sans-serif"],
+    font=_FONT,
+    font_mono=_FONT,  # tableau et code dans la même police que le texte
 ).set(
     block_shadow="none",
     button_primary_shadow="none",
@@ -141,6 +144,12 @@ def _page(client: ApiClient, state: dict, query: str, neighborhood: str, offset:
 
 
 def on_login(client: ApiClient, state: dict, username: str, password: str):
+    if not (username or "").strip() or not password:
+        return (
+            state,
+            *_panels(False, "Saisissez votre identifiant et votre mot de passe."),
+            *[gr.update() for _ in range(5)],
+        )
     try:
         token = client.login(username, password)
     except ApiError as err:
@@ -235,7 +244,8 @@ def on_predict(client: ApiClient, state: dict, year: int | None, with_kumo: bool
 
 
 def on_logout(state: dict):
-    return (new_state(), *_panels(False))
+    """Déconnexion : jeton oublié et mot de passe effacé du formulaire."""
+    return (new_state(), *_panels(False), "")
 
 
 def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Blocks:
@@ -277,7 +287,11 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
                         [ALL, *NEIGHBORHOODS], value=ALL, label="Quartier"
                     )
                     table = gr.Dataframe(
-                        headers=COLUMNS, interactive=False, wrap=True, max_height=520
+                        headers=COLUMNS,
+                        interactive=False,
+                        wrap=True,
+                        max_height=520,
+                        buttons=[],
                     )
                     with gr.Row():
                         prev_btn = gr.Button(
@@ -327,6 +341,7 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
             [state, query, neighborhood],
             [*head, *page_outputs, error_md],
         )
+
         # Fonction annotée explicitement : Gradio injecte gr.SelectData d'après la
         # signature, qu'un functools.partial masquerait.
         def select_row(s: dict, evt: gr.SelectData):
@@ -344,6 +359,6 @@ def build_app(client_factory: Callable[[], ApiClient] = default_client) -> gr.Bl
             [state, year_dd, with_kumo],
             [*head, result_md, error_md],
         ).then(lambda: gr.update(value="Prédire", interactive=True), None, predict_btn)
-        logout_btn.click(on_logout, [state], head)
+        logout_btn.click(on_logout, [state], [*head, password])
 
     return demo

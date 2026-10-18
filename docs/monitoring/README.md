@@ -30,6 +30,8 @@ Le service est **sans état** : la datasource et les tableaux de bord viennent d
 | Par route | Appels, part d'erreurs, p95 et maximum par route ; les identifiants sont regroupés (`/buildings/{id}`) |
 | 20 dernières erreurs | Date, méthode, route, code et durée des derniers appels en erreur |
 
+Les appels de l'[interface de démonstration](../ui/README.md) y figurent comme ceux de tout client, au nom de l'utilisateur connecté.
+
 Les taux ne comptent que les requêtes terminées : une requête en cours (ou interrompue avant sa finalisation) n'a pas encore de statut et n'est pas comptée comme une erreur.
 
 ## Tableau « Modèle »

@@ -206,10 +206,11 @@ def test_expired_session_returns_to_login(action):
     assert all(u == gr.update() for u in rest)
 
 
-def test_logout():
-    state, login, main, message = ui.on_logout(logged_state())
+def test_logout_clears_password():
+    state, login, main, message, password = ui.on_logout(logged_state())
     assert state == ui.new_state()
     assert visible(login) and not visible(main) and message == ""
+    assert password == ""  # pas de mot de passe laissé à l'écran
 
 
 def test_build_app_and_light_theme():
@@ -257,3 +258,36 @@ def test_main_module_imports_without_launching():
 
     module = importlib.import_module("app.ui.__main__")
     assert module.build_app is ui.build_app
+
+
+def test_neighborhood_filter_uses_dataset_values():
+    """Le filtre compare la valeur exacte de l'identité du bâtiment : Delridge y
+    est « DELRIDGE NEIGHBORHOODS » (49 bâtiments consultables sur 50)."""
+    assert "DELRIDGE NEIGHBORHOODS" in ui.NEIGHBORHOODS
+    assert "DELRIDGE" not in ui.NEIGHBORHOODS
+
+
+def test_results_table_is_plain():
+    """Tableau épuré : sans barre d'outils, police du texte courant (pas de
+    chasse fixe, qui tronquait la colonne « Quartier »). Pas de column_widths
+    en pourcentages : le tableau se redimensionnait en boucle."""
+    demo = ui.build_app(lambda: FakeClient())
+    (table,) = [b for b in demo.blocks.values() if isinstance(b, gr.Dataframe)]
+    assert table.buttons == []
+    assert not table.column_widths
+    theme = ui.LAUNCH_OPTIONS["theme"]
+    assert theme._font_mono == theme._font
+
+
+@pytest.mark.parametrize(
+    ("username", "password"), [("", ""), ("johndoe", ""), ("  ", "x")]
+)
+def test_login_requires_both_fields(username, password):
+    client = FakeClient()
+    state, login, main, message, *_ = ui.on_login(
+        client, ui.new_state(), username, password
+    )
+    assert state["token"] is None
+    assert visible(login) and not visible(main)
+    assert message == "Saisissez votre identifiant et votre mot de passe."
+    assert client.calls == []  # aucun appel à l'API

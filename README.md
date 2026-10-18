@@ -35,6 +35,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 | **Modèle** | [CatBoost](https://catboost.ai/) multi-cible (énergie, émissions), scikit-learn, pandas ; comparaison zero-shot Kumo-Tabular ([structured-data-models](https://github.com/NVIDIA/structured-data-models), PyTorch CPU) |
 | **Suivi des expériences** | [MLflow](https://mlflow.org/) (métadonnées dans PostgreSQL) |
 | **Base de données** | PostgreSQL 17, SQLAlchemy 2, Alembic (migrations), psycopg 3 |
+| **Interface** | [Gradio](https://www.gradio.app/) 6 (client HTTP de l'API, thème clair) |
 | **Monitoring** | [Grafana](https://grafana.com/oss/grafana/) 12 (tableaux de bord provisionnés, datasource PostgreSQL) |
 | **Conteneurs** | Docker, Docker Compose, image publiée sur GHCR (modèle embarqué) |
 | **Qualité & tests** | [uv](https://github.com/astral-sh/uv), ruff, pytest + pytest-cov, diff-cover, SonarCloud |
@@ -46,7 +47,7 @@ L'objectif est de **rendre le modèle utilisable en production** tout en respect
 
 ## 🚀 Quickstart
 
-Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle).
+Les deux parcours installent la base PostgreSQL, ingèrent les jeux 2016 (entraînement) et 2019 (bâtiments jamais vus, open data de Seattle), puis démarrent l'API, le monitoring et l'**interface de démonstration** : http://localhost:7860 (`johndoe` / `secret`), voir [`docs/ui/README.md`](docs/ui/README.md).
 
 **Prérequis communs** : Docker avec Compose v2 et `curl` (Linux, macOS ou WSL). Ports `8080` (API), `5432` (PostgreSQL), `3000` (Grafana) et `7860` (interface) : s'ils sont pris, préfixer la commande, par exemple `API_PORT=18080 DB_PORT=15432 GRAFANA_PORT=13000 UI_PORT=17860 …`.
 
@@ -173,6 +174,8 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 | `API_PORT` | Port hôte de l'API | `8080` |
 | `DB_PORT` | Port hôte de PostgreSQL | `5432` |
 | `GRAFANA_PORT` | Port hôte de Grafana | `3000` |
+| `UI_PORT` | Port hôte de l'interface de démonstration | `7860` |
+| `P5_API_URL` | API visée par l'interface (`http://api:8080` dans Compose) | `http://localhost:8080` |
 | `UID` / `GID` | Utilisateur du service `tools` (écriture dans `./data`, `./models`, `./mlruns`) | `1000` / `1000` |
 | `P5_SEED_DEMO_USERS` | `1` : `create_db` crée les comptes de démonstration (**jamais en production**) | `0` |
 
@@ -205,6 +208,7 @@ Les mots de passe sont lus par Docker Compose et `create_db` ; les URL `DATABASE
 | [Authentification](docs/api/authentication.md) | Jeton JWT, comptes de démonstration, `SECRET_KEY` |
 | [Pipeline CI/CD](docs/ci-cd/README.md) | Diagramme du flux, workflows CI/IA/CD, sécurité du pipeline |
 | [Base de données](docs/db/README.md) | Schéma UML, choix techniques, rôles, mise en route, requêtes SQL |
+| [Interface de démonstration](docs/ui/README.md) | Parcours Gradio : connexion, recherche, fiche, prédiction, comparaison Kumo |
 | [Monitoring](docs/monitoring/README.md) | Tableaux de bord Grafana « API » et « Modèle », droits du rôle `p5_grafana` |
 | [Entraînement](docs/training/README.md) | Réentraînement CatBoost multi-cible, Kumo, suivi MLflow, tests |
 | [Guide de contribution](CONTRIBUTING.md) | Cycle Issue → Branche → PR, conventions |
@@ -254,6 +258,7 @@ L'image applicative est construite sur l'image `:base` (dépendances précompil�
 - Expose le modèle de ML via des endpoints REST
 - Documentation intégrée (Swagger / OpenAPI)
 - Endpoints, schémas de données, exemples d'appels
+- Interface de démonstration Gradio, cliente de l'API ([`docs/ui/README.md`](docs/ui/README.md))
 
 ### 3. Tests unitaires & fonctionnels
 
