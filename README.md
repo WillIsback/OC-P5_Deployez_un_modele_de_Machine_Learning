@@ -3,6 +3,8 @@
 [![ci-install](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml/badge.svg?branch=main)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/actions/workflows/ci-install.yml)
 [![Release](https://img.shields.io/github/v/release/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning?sort=semver)](https://github.com/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning/releases)
 [![Licence MIT](https://img.shields.io/github/license/WillIsback/OC-P5_Deployez_un_modele_de_Machine_Learning)](LICENSE)
+[![Démo en ligne](https://img.shields.io/badge/D%C3%A9mo%20en%20ligne-%E2%9A%A1%20Space-blue)](https://willisback-seattle-energy-demo.hf.space)
+[![Modèle](https://img.shields.io/badge/Mod%C3%A8le-%F0%9F%A7%AD%20Hugging%20Face-yellow?logo=huggingface)](https://huggingface.co/WillisBack/seattle-energy-catboost)
 
 **Auteur** : William Derue
 **Formation** : [AI Engineer](https://openclassrooms.com/fr/paths/1011-ai-engineer) — OpenClassrooms
