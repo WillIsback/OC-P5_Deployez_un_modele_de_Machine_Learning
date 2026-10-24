@@ -429,7 +429,7 @@ semantic-version==2.10.0
     # via gradio
 sentry-sdk==2.71.0
     # via fastapi-cloud-cli
-setuptools==84.0.0
+setuptools==84.1.0
     # via torch
 shellingham==1.5.4
     # via typer
