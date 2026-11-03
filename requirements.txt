@@ -85,7 +85,7 @@ databricks-sdk==0.149.0
     #   mlflow-tracing
 detect-installer==0.2.1
     # via fastapi-cloud-cli
-dnspython==2.8.0
+dnspython==2.9.0
     # via email-validator
 docker==7.2.0
     # via mlflow
