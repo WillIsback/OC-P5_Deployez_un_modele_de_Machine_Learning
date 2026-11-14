@@ -258,7 +258,7 @@ numpy==2.5.3
     #   scipy
     #   skops
     #   structured-data-models
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
     # via
     #   fastapi
     #   mlflow-skinny
